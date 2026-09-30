@@ -72,7 +72,7 @@ namespace API.UsersModule
 
         public async Task<IEnumerable<User>> GetAllUsersAsync()
         {
-            var sql = "SELECT * FROM users ORDER BY id DESC";
+            var sql = "SELECT * FROM users ORDER BY id ASC";
             return await ExecuteReaderToListAsync(sql, MapReaderToUser);
         }
 

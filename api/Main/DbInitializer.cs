@@ -59,7 +59,7 @@ namespace API.Main
                     }
                 }
 
-                // 3. Seed default accounts
+                // 3. Seed default accounts & clean up missing profile fields
                 cmd.CommandText = @"
                     INSERT INTO users (username, full_name, phone_number, address, password_hash, role)
                     VALUES ('WholeSome', 'Jasmin T. Cavan', '09949516731', 'Upper Pacheco Olongapo City', '123456', 'Admin')
@@ -68,6 +68,24 @@ namespace API.Main
                     INSERT INTO users (username, full_name, phone_number, address, password_hash, role)
                     VALUES ('Jeicho', 'Jeiricho Lumbag', '09123456755', 'Olongapo City', '123456', 'customer')
                     ON CONFLICT (username) DO UPDATE SET password_hash = '123456';
+
+                    -- Update any empty/null profile fields for users like Jolo
+                    UPDATE users SET 
+                        full_name = CASE WHEN full_name IS NULL OR TRIM(full_name) = '' THEN username ELSE full_name END,
+                        phone_number = CASE WHEN phone_number IS NULL OR TRIM(phone_number) = '' THEN '09123456789' ELSE phone_number END,
+                        address = CASE WHEN address IS NULL OR TRIM(address) = '' THEN 'Olongapo City' ELSE address END;
+
+                    -- Safely re-sequence user IDs so they are clean and consecutive (1, 2, 3, 4...)
+                    WITH renumbered AS (
+                        SELECT id, ROW_NUMBER() OVER (ORDER BY id ASC) AS new_id
+                        FROM users
+                    )
+                    UPDATE users u
+                    SET id = r.new_id
+                    FROM renumbered r
+                    WHERE u.id = r.id;
+
+                    SELECT setval(pg_get_serial_sequence('users', 'id'), (SELECT COALESCE(MAX(id), 1) FROM users));
                 ";
                 await cmd.ExecuteNonQueryAsync();
 

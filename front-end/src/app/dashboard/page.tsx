@@ -34,6 +34,7 @@ export interface Order {
   id: number;
   user_id: number;
   customer_name?: string;
+  customer_address?: string;
   total_amount: number;
   payment_method: string;
   status: string;
@@ -356,6 +357,22 @@ export default function DashboardPage() {
     is_available: true,
   });
 
+  const productFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleSelectProductImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setProductFormData((prev) => ({
+          ...prev,
+          image_url: reader.result as string,
+        }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   // Dynamic Variations in Modal
   const [hasProductVariations, setHasProductVariations] = useState(false);
   const [productFormVariations, setProductFormVariations] = useState<{ flavor_name: string; price: string }[]>([]);
@@ -392,9 +409,10 @@ export default function DashboardPage() {
             id: o.id || o.Id || 1001 + idx,
             user_id: o.user_id || o.userId || 1,
             customer_name: o.customer_name || `Customer #${o.user_id || o.userId || 1}`,
+            customer_address: o.customer_address || "Olongapo City",
             total_amount: Number(o.total_amount || o.totalAmount || 0),
             payment_method: o.payment_method || o.paymentMethod || "COD",
-            status: o.status || o.Status || "Pending",
+            status: o.status || o.Status || "Processing",
             created_at: o.created_at || o.createdAt || new Date().toISOString(),
             items: o.items || []
           }));
@@ -690,15 +708,28 @@ export default function DashboardPage() {
 
   const handleDeleteUser = async () => {
     if (!userToDelete) return;
+
+    if (
+      (userToDelete.role || "").toLowerCase() === "admin" ||
+      (userToDelete.username || "").toLowerCase() === "wholesome"
+    ) {
+      showToast("error", "Cannot delete the primary Admin account.");
+      setUserToDelete(null);
+      return;
+    }
+
     try {
       const res = await fetch(`/api/users/admin/delete/${userToDelete.id}`, {
         method: "DELETE",
       });
       if (res.ok) {
+        showToast("success", `User "@${userToDelete.username}" deleted.`);
         await fetchUsers();
-        showToast("success", `User "${userToDelete.username}" deleted.`);
         setUserToDelete(null);
         return;
+      } else {
+        const data = await res.json().catch(() => ({}));
+        showToast("error", data?.message || "Failed to delete user.");
       }
     } catch (err) {
       console.log("DELETE /api/users notice:", err);
@@ -706,7 +737,7 @@ export default function DashboardPage() {
 
     const updated = usersList.filter((u) => u.id !== userToDelete.id);
     setUsersList(updated);
-    showToast("success", `User "${userToDelete.username}" deleted.`);
+    showToast("success", `User "@${userToDelete.username}" deleted.`);
     setUserToDelete(null);
   };
 
@@ -1462,42 +1493,22 @@ export default function DashboardPage() {
             /* ORDERS MANAGEMENT VIEW */
             <div className="space-y-6 animate-in fade-in duration-200">
               {/* CONTROLS BAR */}
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                {/* STATUS FILTER TABS */}
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
-                  {["All", "Pending", "Processing", "Completed", "Cancelled"].map((st) => {
-                    const active = orderStatusFilter === st;
-                    return (
-                      <button
-                        key={st}
-                        onClick={() => setOrderStatusFilter(st)}
-                        className={`px-3.5 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
-                          active
-                            ? "bg-orange-600 text-white shadow-md shadow-orange-600/30"
-                            : "bg-white text-stone-600 border border-orange-200/80 hover:bg-orange-50"
-                        }`}
-                      >
-                        {st}
-                      </button>
-                    );
-                  })}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                {/* SEARCH ORDER */}
+                <div className="relative w-full sm:w-80">
+                  <input
+                    type="text"
+                    value={searchOrder}
+                    onChange={(e) => setSearchOrder(e.target.value)}
+                    placeholder="Search order ID or customer..."
+                    className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-white border border-orange-200 text-stone-900 text-xs placeholder-stone-400 focus:outline-none focus:border-orange-500 shadow-sm font-medium"
+                  />
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs">
+                    🔍
+                  </span>
                 </div>
 
                 <div className="flex items-center gap-3">
-                  {/* SEARCH ORDER */}
-                  <div className="relative w-full md:w-64">
-                    <input
-                      type="text"
-                      value={searchOrder}
-                      onChange={(e) => setSearchOrder(e.target.value)}
-                      placeholder="Search order ID or customer..."
-                      className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-white border border-orange-200 text-stone-900 text-xs placeholder-stone-400 focus:outline-none focus:border-orange-500 shadow-sm font-medium"
-                    />
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs">
-                      🔍
-                    </span>
-                  </div>
-
                   {/* PLACE ORDER CHECKOUT BUTTON (Hidden for Admins) */}
                   {!isAdmin && (
                     <button
@@ -1517,11 +1528,12 @@ export default function DashboardPage() {
                   <p className="text-xs font-bold text-stone-600">Loading orders...</p>
                 </div>
               ) : orders.filter((o) => {
-                  const matchStatus = orderStatusFilter === "All" || o.status.toLowerCase() === orderStatusFilter.toLowerCase();
-                  const matchSearch = searchOrder === "" ||
+                  return (
+                    searchOrder === "" ||
                     `#${o.id}`.toLowerCase().includes(searchOrder.toLowerCase()) ||
-                    (o.customer_name || "").toLowerCase().includes(searchOrder.toLowerCase());
-                  return matchStatus && matchSearch;
+                    (o.customer_name || "").toLowerCase().includes(searchOrder.toLowerCase()) ||
+                    (o.customer_address || "").toLowerCase().includes(searchOrder.toLowerCase())
+                  );
                 }).length === 0 ? (
                 <div className="text-center py-16 bg-white border border-orange-200 rounded-3xl">
                   <p className="text-stone-500 text-sm font-bold">No orders found.</p>
@@ -1534,6 +1546,7 @@ export default function DashboardPage() {
                         <th className="pb-3">Order ID</th>
                         <th className="pb-3">Customer</th>
                         <th className="pb-3">Date</th>
+                        <th className="pb-3">Address</th>
                         <th className="pb-3">Total Amount</th>
                         <th className="pb-3">Payment</th>
                         <th className="pb-3">Status</th>
@@ -1543,11 +1556,12 @@ export default function DashboardPage() {
                     <tbody className="divide-y divide-stone-100 text-stone-800">
                       {orders
                         .filter((o) => {
-                          const matchStatus = orderStatusFilter === "All" || o.status.toLowerCase() === orderStatusFilter.toLowerCase();
-                          const matchSearch = searchOrder === "" ||
+                          return (
+                            searchOrder === "" ||
                             `#${o.id}`.toLowerCase().includes(searchOrder.toLowerCase()) ||
-                            (o.customer_name || "").toLowerCase().includes(searchOrder.toLowerCase());
-                          return matchStatus && matchSearch;
+                            (o.customer_name || "").toLowerCase().includes(searchOrder.toLowerCase()) ||
+                            (o.customer_address || "").toLowerCase().includes(searchOrder.toLowerCase())
+                          );
                         })
                         .map((o) => (
                           <tr key={o.id} className="hover:bg-orange-50/50 transition">
@@ -1555,6 +1569,9 @@ export default function DashboardPage() {
                             <td className="py-3.5 font-bold">{o.customer_name || `Customer #${o.user_id}`}</td>
                             <td className="py-3.5 text-stone-500 font-medium">
                               {new Date(o.created_at).toLocaleDateString()}
+                            </td>
+                            <td className="py-3.5 text-stone-600 font-medium truncate max-w-xs">
+                              {o.customer_address || "Olongapo City"}
                             </td>
                             <td className="py-3.5 font-black text-orange-600 text-sm">
                               ₱{Number(o.total_amount).toFixed(2)}
@@ -1572,27 +1589,22 @@ export default function DashboardPage() {
                                   className={`px-2.5 py-1 rounded-xl text-xs font-bold border focus:outline-none cursor-pointer ${
                                     o.status === "Completed"
                                       ? "bg-emerald-50 text-emerald-700 border-emerald-300"
-                                      : o.status === "Processing"
+                                      : o.status === "Delivering"
                                       ? "bg-blue-50 text-blue-700 border-blue-300"
-                                      : o.status === "Cancelled"
-                                      ? "bg-rose-50 text-rose-700 border-rose-300"
                                       : "bg-amber-50 text-amber-800 border-amber-300"
                                   }`}
                                 >
-                                  <option value="Pending">Pending</option>
                                   <option value="Processing">Processing</option>
+                                  <option value="Delivering">Delivering</option>
                                   <option value="Completed">Completed</option>
-                                  <option value="Cancelled">Cancelled</option>
                                 </select>
                               ) : (
                                 <span
                                   className={`px-2.5 py-1 rounded-xl text-xs font-bold border ${
                                     o.status === "Completed"
                                       ? "bg-emerald-50 text-emerald-700 border-emerald-300"
-                                      : o.status === "Processing"
+                                      : o.status === "Delivering"
                                       ? "bg-blue-50 text-blue-700 border-blue-300"
-                                      : o.status === "Cancelled"
-                                      ? "bg-rose-50 text-rose-700 border-rose-300"
                                       : "bg-amber-50 text-amber-800 border-amber-300"
                                   }`}
                                 >
@@ -2350,16 +2362,50 @@ export default function DashboardPage() {
               </div>
 
               <div>
-                <label className="block text-stone-700 mb-1">Image URL (Optional)</label>
+                <label className="block text-stone-700 mb-1">Product Image</label>
                 <input
-                  type="text"
-                  value={productFormData.image_url}
-                  onChange={(e) =>
-                    setProductFormData({ ...productFormData, image_url: e.target.value })
-                  }
-                  placeholder="e.g. /images/newyork_cheesecake.jpg or https://..."
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-orange-50/40 border border-orange-200 text-stone-900 focus:outline-none focus:border-orange-500 font-medium"
+                  type="file"
+                  ref={productFileInputRef}
+                  onChange={handleSelectProductImage}
+                  accept="image/*"
+                  className="hidden"
                 />
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={productFormData.image_url}
+                    onChange={(e) =>
+                      setProductFormData({ ...productFormData, image_url: e.target.value })
+                    }
+                    placeholder="e.g. /images/newyork_cheesecake.jpg or click Browse..."
+                    className="flex-1 px-3.5 py-2.5 rounded-xl bg-orange-50/40 border border-orange-200 text-stone-900 focus:outline-none focus:border-orange-500 font-medium text-xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => productFileInputRef.current?.click()}
+                    className="px-3.5 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs shadow-md shadow-orange-600/20 cursor-pointer shrink-0 transition flex items-center gap-1.5"
+                  >
+                    <span>📁</span>
+                    <span>Browse Image</span>
+                  </button>
+                </div>
+                {productFormData.image_url && (
+                  <div className="mt-2.5 relative inline-block border border-orange-200 rounded-2xl p-1.5 bg-white shadow-sm">
+                    <img
+                      src={productFormData.image_url}
+                      alt="Product preview"
+                      className="w-20 h-20 object-cover rounded-xl"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setProductFormData({ ...productFormData, image_url: "" })}
+                      className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-rose-600 text-white text-xs font-black flex items-center justify-center cursor-pointer shadow-md hover:bg-rose-500 transition"
+                      title="Remove image"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-2 pt-1">

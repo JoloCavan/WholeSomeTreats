@@ -25,5 +25,11 @@ namespace API.OrdersModule
 
         [JsonPropertyName("created_at")]
         public DateTime CreatedAt { get; set; }
+
+        [JsonPropertyName("customer_name")]
+        public string CustomerName { get; set; } = string.Empty;
+
+        [JsonPropertyName("customer_address")]
+        public string CustomerAddress { get; set; } = string.Empty;
     }
 }

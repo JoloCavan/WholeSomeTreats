@@ -10,6 +10,20 @@ namespace API.OrdersModule
     {
         public OrdersRepository(MyCon dbConnection) : base(dbConnection) { }
 
+        private static string GetStringOrEmpty(DbDataReader reader, string columnName)
+        {
+            try
+            {
+                int ordinal = reader.GetOrdinal(columnName);
+                if (reader.IsDBNull(ordinal)) return string.Empty;
+                return reader.GetString(ordinal);
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
         private Order MapReaderToOrder(DbDataReader reader)
         {
             return new Order
@@ -18,9 +32,10 @@ namespace API.OrdersModule
                 UserId = reader.GetInt32(reader.GetOrdinal("user_id")),
                 TotalAmount = reader.GetDecimal(reader.GetOrdinal("total_amount")),
                 PaymentMethod = reader.GetString(reader.GetOrdinal("payment_method")),
-                // GCash line removed here
                 Status = reader.GetString(reader.GetOrdinal("status")),
-                CreatedAt = reader.GetDateTime(reader.GetOrdinal("created_at"))
+                CreatedAt = reader.GetDateTime(reader.GetOrdinal("created_at")),
+                CustomerName = GetStringOrEmpty(reader, "customer_name"),
+                CustomerAddress = GetStringOrEmpty(reader, "customer_address")
             };
         }
 
@@ -99,12 +114,27 @@ namespace API.OrdersModule
         
         public async Task<IEnumerable<Order>> GetAllOrdersAsync()
         {
-            return await ExecuteReaderToListAsync("SELECT * FROM orders ORDER BY created_at DESC", MapReaderToOrder);
+            var sql = @"
+                SELECT o.*, 
+                       COALESCE(NULLIF(u.full_name, ''), u.username, 'Customer #' || o.user_id) AS customer_name,
+                       COALESCE(NULLIF(u.address, ''), 'Olongapo City') AS customer_address
+                FROM orders o
+                LEFT JOIN users u ON o.user_id = u.id
+                ORDER BY o.created_at DESC";
+            return await ExecuteReaderToListAsync(sql, MapReaderToOrder);
         }
 
         public async Task<IEnumerable<Order>> GetOrdersByUserIdAsync(int userId)
         {
-            return await ExecuteReaderToListAsync("SELECT * FROM orders WHERE user_id = @userId ORDER BY created_at DESC", MapReaderToOrder, new[] { CreateParameter("userId", userId) });
+            var sql = @"
+                SELECT o.*, 
+                       COALESCE(NULLIF(u.full_name, ''), u.username, 'Customer #' || o.user_id) AS customer_name,
+                       COALESCE(NULLIF(u.address, ''), 'Olongapo City') AS customer_address
+                FROM orders o
+                LEFT JOIN users u ON o.user_id = u.id
+                WHERE o.user_id = @userId
+                ORDER BY o.created_at DESC";
+            return await ExecuteReaderToListAsync(sql, MapReaderToOrder, new[] { CreateParameter("userId", userId) });
         }
 
         public async Task UpdateOrderStatusAsync(int orderId, string status)

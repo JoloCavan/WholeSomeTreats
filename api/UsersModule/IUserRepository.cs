@@ -5,12 +5,12 @@ namespace API.UsersModule
 {
     public interface IUserRepository
     {
+        Task<int> CreateUserAsync(User user);
+        Task<User> GetUserByUsernameAsync(string username);
+        Task<User> GetUserByIdAsync(int id);
         Task<IEnumerable<User>> GetAllUsersAsync();
-        Task<User?> GetByUsernameAsync(string username);
-        Task<User?> GetByIdAsync(int id);
-        Task AddAsync(User entity);
-        Task UpdatePasswordAsync(int userId, string newPasswordHash);
-        Task UpdateRoleAsync(int userId, string newRole);
-        Task DeleteUserAsync(int userId);
+        Task<bool> UpdateRoleAsync(int id, string role);
+        Task<bool> UpdatePasswordAsync(int id, string newPasswordHash);
+        Task<bool> DeleteUserAsync(int id);
     }
 }

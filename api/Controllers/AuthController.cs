@@ -1,9 +1,9 @@
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 using System.Threading.Tasks;
-using API.DTOs;
 using API.UsersModule;
+using API.DTOs;
 using API.Security;
 
 namespace API.Controllers
@@ -13,12 +13,12 @@ namespace API.Controllers
     public class AuthController : ControllerBase
     {
         private readonly IUserRepository _userRepository;
-        private readonly IJwtTokenService _jwtTokenService;
+        private readonly JwtTokenService _jwtService;
 
-        public AuthController(IUserRepository userRepository, IJwtTokenService jwtTokenService)
+        public AuthController(IUserRepository userRepository, JwtTokenService jwtService)
         {
             _userRepository = userRepository;
-            _jwtTokenService = jwtTokenService;
+            _jwtService = jwtService;
         }
 
         private int GetCurrentUserId()
@@ -27,82 +27,84 @@ namespace API.Controllers
             return int.TryParse(userIdClaim, out int userId) ? userId : 0;
         }
 
-        [AllowAnonymous]
-        [HttpPost("register")]
-        public async Task<IActionResult> Register([FromBody] RegisterRequest dto)
+        [HttpGet("me")]
+        [Authorize]
+        public async Task<IActionResult> GetCurrentUserProfile()
         {
-            var existingUser = await _userRepository.GetByUsernameAsync(dto.Username);
-            if (existingUser != null)
-                return Conflict(new { message = "Username is already taken." });
+            int userId = GetCurrentUserId();
+            if (userId == 0) return Unauthorized(new { message = "Invalid token." });
 
-            var user = new User
+            var user = await _userRepository.GetUserByIdAsync(userId);
+            if (user == null) return NotFound(new { message = "User not found." });
+
+            return Ok(new 
+            { 
+                id = user.Id, 
+                username = user.Username, 
+                roleId = user.RoleId 
+            });
+        }
+
+        [HttpPost("register")]
+        public async Task<IActionResult> Register([FromBody] RegisterRequest request)
+        {
+            var existingUser = await _userRepository.GetUserByUsernameAsync(request.Username);
+            if (existingUser != null) return BadRequest(new { message = "Username already exists." });
+
+            var newUser = new User
             {
-                Username = dto.Username,
-                FullName = dto.FullName,
-                PhoneNumber = dto.PhoneNumber,
-                Address = dto.Address,
-                PasswordHash = PasswordHasher.Hash(dto.Password),
+                Username = request.Username,
+                FullName = string.IsNullOrWhiteSpace(request.FullName) ? request.Username : request.FullName,
+                PhoneNumber = request.PhoneNumber ?? string.Empty,
+                Address = request.Address ?? string.Empty,
+                PasswordHash = PasswordHasher.HashPassword(request.Password),
                 Role = "customer"
             };
 
-            await _userRepository.AddAsync(user);
+            await _userRepository.CreateUserAsync(newUser);
             return Ok(new { message = "User registered successfully." });
         }
 
-        [AllowAnonymous]
         [HttpPost("login")]
-        public async Task<IActionResult> Login([FromBody] LoginRequest dto)
+        public async Task<IActionResult> Login([FromBody] LoginRequest request)
         {
-            if (dto == null || string.IsNullOrWhiteSpace(dto.Username) || string.IsNullOrWhiteSpace(dto.Password))
-                return BadRequest(new { message = "Username and password are required." });
-
-            var user = await _userRepository.GetByUsernameAsync(dto.Username);
-            if (user == null)
+            var user = await _userRepository.GetUserByUsernameAsync(request.Username);
+            
+            if (user == null || !PasswordHasher.VerifyPassword(request.Password, user.PasswordHash))
                 return Unauthorized(new { message = "Invalid username or password." });
 
-            bool isValidPassword = false;
-            try
-            {
-                isValidPassword = PasswordHasher.Verify(user.PasswordHash, dto.Password);
-            }
-            catch
-            {
-                isValidPassword = false;
-            }
-
-            if (!isValidPassword && user.PasswordHash == dto.Password)
-            {
-                isValidPassword = true;
-            }
-
-            if (!isValidPassword)
-                return Unauthorized(new { message = "Invalid username or password." });
-
-            string token = _jwtTokenService.GenerateToken(user);
+            var token = _jwtService.GenerateToken(user);
+            
             return Ok(new { 
-                message = "Login successful.", 
                 token = token, 
-                user = new { 
-                    id = user.Id, 
-                    username = user.Username, 
-                    fullName = user.FullName ?? user.Username, 
-                    role = user.Role ?? "customer"
-                } 
+                roleId = user.RoleId,
+                role = user.Role,
+                user = new {
+                    id = user.Id,
+                    username = user.Username,
+                    full_name = user.FullName,
+                    phone_number = user.PhoneNumber,
+                    address = user.Address,
+                    role = user.Role,
+                    roleId = user.RoleId
+                },
+                message = "Login successful."
             });
         }
 
         [HttpPut("change-password")]
         [Authorize]
-        public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest dto)
+        public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
         {
             int userId = GetCurrentUserId();
             if (userId == 0) return Unauthorized();
 
-            var user = await _userRepository.GetByIdAsync(userId);
-            if (user == null || !PasswordHasher.Verify(user.PasswordHash, dto.OldPassword))
-                return BadRequest(new { message = "Invalid current password." });
+            var user = await _userRepository.GetUserByIdAsync(userId);
+            if (user == null) return NotFound(new { message = "User not found." });
 
-            await _userRepository.UpdatePasswordAsync(userId, PasswordHasher.Hash(dto.NewPassword));
+            string newHash = PasswordHasher.HashPassword(request.NewPassword);
+            await _userRepository.UpdatePasswordAsync(userId, newHash);
+            
             return Ok(new { message = "Password updated successfully." });
         }
 

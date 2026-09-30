@@ -20,18 +20,59 @@ namespace API.Main
                 await conn.OpenAsync();
 
                 await using var cmd = conn.CreateCommand();
+
+                // 1. Ensure users table exists
                 cmd.CommandText = @"
                     CREATE TABLE IF NOT EXISTS users (
                         id SERIAL PRIMARY KEY,
                         username VARCHAR(100) UNIQUE NOT NULL,
-                        full_name VARCHAR(255) NOT NULL,
-                        phone_number VARCHAR(50),
-                        address TEXT,
+                        full_name VARCHAR(255) DEFAULT '',
+                        phone_number VARCHAR(50) DEFAULT '',
+                        address TEXT DEFAULT '',
                         password_hash TEXT NOT NULL,
                         role VARCHAR(50) DEFAULT 'customer',
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
+                ";
+                await cmd.ExecuteNonQueryAsync();
 
+                // 2. Ensure schema columns exist for existing tables
+                string[] alterStatements = new[]
+                {
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR(255) DEFAULT '';",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number VARCHAR(50) DEFAULT '';",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS address TEXT DEFAULT '';",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'customer';",
+                    "UPDATE users SET role = 'customer' WHERE role IS NULL OR role = '';"
+                };
+
+                foreach (var stmt in alterStatements)
+                {
+                    try
+                    {
+                        cmd.CommandText = stmt;
+                        await cmd.ExecuteNonQueryAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"⚠️ [DbInitializer] Alter statement warning on '{stmt}': {ex.Message}");
+                    }
+                }
+
+                // 3. Seed default accounts
+                cmd.CommandText = @"
+                    INSERT INTO users (username, full_name, phone_number, address, password_hash, role)
+                    VALUES ('WholeSome', 'Jasmin T. Cavan', '09949516731', 'Upper Pacheco Olongapo City', '123456', 'Admin')
+                    ON CONFLICT (username) DO UPDATE SET role = 'Admin', full_name = 'Jasmin T. Cavan', password_hash = '123456';
+
+                    INSERT INTO users (username, full_name, phone_number, address, password_hash, role)
+                    VALUES ('Jeicho', 'Jeiricho Lumbag', '09123456755', 'Olongapo City', '123456', 'customer')
+                    ON CONFLICT (username) DO UPDATE SET password_hash = '123456';
+                ";
+                await cmd.ExecuteNonQueryAsync();
+
+                // 4. Products table
+                cmd.CommandText = @"
                     CREATE TABLE IF NOT EXISTS products (
                         id SERIAL PRIMARY KEY,
                         name VARCHAR(255) NOT NULL,
@@ -82,7 +123,6 @@ namespace API.Main
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
                 ";
-
                 await cmd.ExecuteNonQueryAsync();
 
                 // Seed initial products if table is empty
@@ -118,10 +158,13 @@ namespace API.Main
                 if (orderCount == 0)
                 {
                     cmd.CommandText = @"
-                        INSERT INTO orders (user_id, total_amount, payment_method, status, created_at) VALUES
-                        (1, 220.00, 'COD', 'Pending', NOW() - INTERVAL '2 hours'),
-                        (1, 180.00, 'COD', 'Processing', NOW() - INTERVAL '1 day'),
-                        (1, 145.00, 'COD', 'Completed', NOW() - INTERVAL '2 days');
+                        DELETE FROM order_items WHERE order_id NOT IN (SELECT id FROM orders);
+
+                        INSERT INTO orders (id, user_id, total_amount, payment_method, status, created_at) VALUES
+                        (1, 1, 220.00, 'COD', 'Pending', NOW() - INTERVAL '2 hours'),
+                        (2, 1, 180.00, 'COD', 'Processing', NOW() - INTERVAL '1 day'),
+                        (3, 1, 145.00, 'COD', 'Completed', NOW() - INTERVAL '2 days')
+                        ON CONFLICT (id) DO NOTHING;
 
                         INSERT INTO order_items (order_id, product_id, variation_id, quantity, price_at_purchase) VALUES
                         (1, 5, NULL, 1, 220.00),

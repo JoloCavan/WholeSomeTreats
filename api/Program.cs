@@ -81,7 +81,7 @@ builder.Services.AddAuthorization(options =>
 builder.Services.AddScoped<MyCon>(_ => new MyCon());
 
 // 5. Register Services & Repositories
-builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
+builder.Services.AddScoped<JwtTokenService>();
 
 builder.Services.AddScoped<IUserRepository, UserRepository>(sp =>
 {
@@ -152,4 +152,4 @@ app.MapControllers();
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
 
-app.Run();
+app.Run();

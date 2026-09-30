@@ -41,6 +41,30 @@ namespace API.Main
             return await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
 
+        protected async Task<object?> ExecuteScalarAsync(
+            string sql,
+            IEnumerable<DbParameter>? parameters = null,
+            CancellationToken ct = default)
+        {
+            await using var connection = _db.GetConnection();
+            await using var command = connection.CreateCommand();
+            command.CommandText = sql;
+
+            if (parameters != null)
+            {
+                foreach (var p in parameters)
+                {
+                    var clone = command.CreateParameter();
+                    clone.ParameterName = p.ParameterName;
+                    clone.Value = p.Value;
+                    command.Parameters.Add(clone);
+                }
+            }
+
+            await connection.OpenAsync(ct).ConfigureAwait(false);
+            return await command.ExecuteScalarAsync(ct).ConfigureAwait(false);
+        }
+
         protected async Task<List<T>> ExecuteReaderToListAsync<T>(
             string sql,
             Func<DbDataReader, T> mapper,

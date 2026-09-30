@@ -19,10 +19,17 @@ namespace API.UsersModule
         [JsonPropertyName("address")]
         public string Address { get; set; } = string.Empty;
 
-        [JsonIgnore] 
+        [JsonIgnore]
         public string PasswordHash { get; set; } = string.Empty;
 
         [JsonPropertyName("role")]
-        public string Role { get; set; } = "customer"; 
+        public string Role { get; set; } = "customer";
+
+        [JsonIgnore]
+        public int RoleId
+        {
+            get => Role?.ToLower() == "admin" ? 1 : 2;
+            set => Role = value == 1 ? "Admin" : "customer";
+        }
     }
 }

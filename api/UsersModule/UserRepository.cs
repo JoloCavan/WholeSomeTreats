@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Data.Common;
 using System.Linq;
 using System.Threading.Tasks;
@@ -10,13 +11,21 @@ namespace API.UsersModule
     {
         public UserRepository(MyCon dbConnection) : base(dbConnection) { }
 
-        private string GetStringOrEmpty(DbDataReader reader, string columnName)
+        private static string GetStringOrEmpty(DbDataReader reader, string columnName)
         {
-            int ordinal = reader.GetOrdinal(columnName);
-            return reader.IsDBNull(ordinal) ? "" : reader.GetString(ordinal);
+            try
+            {
+                int ordinal = reader.GetOrdinal(columnName);
+                if (reader.IsDBNull(ordinal)) return string.Empty;
+                return reader.GetString(ordinal);
+            }
+            catch
+            {
+                return string.Empty;
+            }
         }
 
-        private User MapReaderToUser(DbDataReader reader)
+        private static User MapReaderToUser(DbDataReader reader)
         {
             return new User
             {
@@ -30,67 +39,68 @@ namespace API.UsersModule
             };
         }
 
+        public async Task<int> CreateUserAsync(User user)
+        {
+            var sql = "INSERT INTO users (username, full_name, phone_number, address, password_hash, role) VALUES (@username, @fullName, @phoneNumber, @address, @passwordHash, @role) RETURNING id";
+            var parameters = new[]
+            {
+                CreateParameter("username", user.Username),
+                CreateParameter("fullName", user.FullName ?? string.Empty),
+                CreateParameter("phoneNumber", user.PhoneNumber ?? string.Empty),
+                CreateParameter("address", user.Address ?? string.Empty),
+                CreateParameter("passwordHash", user.PasswordHash),
+                CreateParameter("role", string.IsNullOrWhiteSpace(user.Role) ? "customer" : user.Role)
+            };
+            
+            var result = await ExecuteScalarAsync(sql, parameters);
+            return Convert.ToInt32(result);
+        }
+
+        public async Task<User> GetUserByUsernameAsync(string username)
+        {
+            var sql = "SELECT * FROM users WHERE LOWER(username) = LOWER(@username)";
+            var users = await ExecuteReaderToListAsync(sql, MapReaderToUser, new[] { CreateParameter("username", username) });
+            return users.FirstOrDefault()!;
+        }
+
+        public async Task<User> GetUserByIdAsync(int id)
+        {
+            var sql = "SELECT * FROM users WHERE id = @id";
+            var users = await ExecuteReaderToListAsync(sql, MapReaderToUser, new[] { CreateParameter("id", id) });
+            return users.FirstOrDefault()!;
+        }
+
         public async Task<IEnumerable<User>> GetAllUsersAsync()
         {
-            return await ExecuteReaderToListAsync("SELECT * FROM users ORDER BY id DESC", MapReaderToUser);
+            var sql = "SELECT * FROM users ORDER BY id DESC";
+            return await ExecuteReaderToListAsync(sql, MapReaderToUser);
         }
 
-        public async Task<User?> GetByUsernameAsync(string username)
-        {
-            var results = await ExecuteReaderToListAsync(
-                "SELECT * FROM users WHERE username = @username",
-                MapReaderToUser,
-                new[] { CreateParameter("username", username) });
-            return results.FirstOrDefault();
-        }
-
-        public async Task<User?> GetByIdAsync(int id)
-        {
-            var results = await ExecuteReaderToListAsync(
-                "SELECT * FROM users WHERE id = @id",
-                MapReaderToUser,
-                new[] { CreateParameter("id", id) });
-            return results.FirstOrDefault();
-        }
-
-        public async Task AddAsync(User entity)
-        {
-            var sql = "INSERT INTO users (username, full_name, phone_number, address, password_hash, role) VALUES (@username, @name, @phone, @address, @hash, @role)";
-            await ExecuteNonQueryAsync(sql, new[]
-            {
-                CreateParameter("username", entity.Username),
-                CreateParameter("name", entity.FullName),
-                CreateParameter("phone", entity.PhoneNumber),
-                CreateParameter("address", entity.Address),
-                CreateParameter("hash", entity.PasswordHash),
-                CreateParameter("role", entity.Role)
-            });
-        }
-
-        public async Task UpdatePasswordAsync(int userId, string newPasswordHash)
-        {
-            var sql = "UPDATE users SET password_hash = @hash WHERE id = @id";
-            await ExecuteNonQueryAsync(sql, new[]
-            {
-                CreateParameter("hash", newPasswordHash),
-                CreateParameter("id", userId)
-            });
-        }
-
-        public async Task UpdateRoleAsync(int userId, string newRole)
+        public async Task<bool> UpdateRoleAsync(int id, string role)
         {
             var sql = "UPDATE users SET role = @role WHERE id = @id";
-            await ExecuteNonQueryAsync(sql, new[]
-            {
-                CreateParameter("role", newRole),
-                CreateParameter("id", userId)
+            int rows = await ExecuteNonQueryAsync(sql, new[] {
+                CreateParameter("role", role),
+                CreateParameter("id", id)
             });
+            return rows > 0;
         }
 
-        public async Task DeleteUserAsync(int userId)
+        public async Task<bool> UpdatePasswordAsync(int id, string newPasswordHash)
+        {
+            var sql = "UPDATE users SET password_hash = @passwordHash WHERE id = @id";
+            int rows = await ExecuteNonQueryAsync(sql, new[] { 
+                CreateParameter("passwordHash", newPasswordHash),
+                CreateParameter("id", id)
+            });
+            return rows > 0;
+        }
+
+        public async Task<bool> DeleteUserAsync(int id)
         {
             var sql = "DELETE FROM users WHERE id = @id";
-            await ExecuteNonQueryAsync(sql, new[] { CreateParameter("id", userId) });
+            int rows = await ExecuteNonQueryAsync(sql, new[] { CreateParameter("id", id) });
+            return rows > 0;
         }
     }
 }

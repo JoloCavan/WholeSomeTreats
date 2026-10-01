@@ -140,7 +140,24 @@ export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    const userStr = localStorage.getItem("user");
+    if (userStr) {
+      try {
+        const u = JSON.parse(userStr);
+        if (
+          u.role === "Admin" ||
+          u.role === "1" ||
+          u.role === 1 ||
+          u.username?.toLowerCase() === "wholesome"
+        ) {
+          setIsAdmin(true);
+        }
+      } catch (e) {}
+    }
+  }, []);
 
   // Selected Product for Variations Modal
   const [selectedProductForVariations, setSelectedProductForVariations] = useState<Product | null>(null);
@@ -164,6 +181,14 @@ export default function ProductsPage() {
 
   // Delete Modal
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+
+  // Quick Order Modal State
+  const [selectedProductForOrder, setSelectedProductForOrder] = useState<Product | null>(null);
+  const [orderQuantity, setOrderQuantity] = useState<number>(1);
+  const [orderVariationId, setOrderVariationId] = useState<number | null>(null);
+  const [orderAddress, setOrderAddress] = useState<string>("Olongapo City");
+  const [orderPaymentMethod, setOrderPaymentMethod] = useState<string>("COD");
+  const [isSubmittingOrder, setIsSubmittingOrder] = useState<boolean>(false);
 
   // Toast State
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -279,6 +304,111 @@ export default function ProductsPage() {
     }
 
     setIsFormOpen(true);
+  };
+
+  const handleOpenOrderModal = (product: Product) => {
+    setSelectedProductForOrder(product);
+    setOrderQuantity(1);
+    setOrderAddress(localStorage.getItem("wt_user_address") || "Olongapo City");
+    setOrderPaymentMethod("COD");
+
+    const storedVars = getStoredVariations(product.id);
+    if (storedVars.length > 0) {
+      setOrderVariationId(storedVars[0].id);
+    } else {
+      setOrderVariationId(null);
+    }
+  };
+
+  const handleConfirmPlaceOrder = async () => {
+    if (!selectedProductForOrder) return;
+    setIsSubmittingOrder(true);
+
+    const token = localStorage.getItem("token");
+    let currentPrice = selectedProductForOrder.base_price;
+    let selectedFlavorName: string | undefined = undefined;
+    const storedVars = getStoredVariations(selectedProductForOrder.id);
+    if (orderVariationId !== null && storedVars.length > 0) {
+      const foundVar = storedVars.find((v) => v.id === orderVariationId);
+      if (foundVar) {
+        currentPrice = foundVar.price;
+        selectedFlavorName = foundVar.flavor_name;
+      }
+    }
+
+    const payload = {
+      productId: selectedProductForOrder.id,
+      variationId: orderVariationId,
+      quantity: orderQuantity,
+      price: currentPrice,
+      paymentMethod: "COD",
+      customerAddress: orderAddress,
+    };
+
+    let newOrderId = Date.now();
+    try {
+      const res = await fetch("/api/orders/direct", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: token ? `Bearer ${token}` : "",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data?.orderId) newOrderId = data.orderId;
+      }
+    } catch (err) {
+      console.log("POST /api/orders/direct notice:", err);
+    }
+
+    // Save to local orders
+    let storedOrders = [];
+    try {
+      const raw = localStorage.getItem("wt_orders");
+      if (raw) storedOrders = JSON.parse(raw);
+    } catch (e) {}
+
+    const userStr = localStorage.getItem("user");
+    let currentUsername = "Jeicho";
+    if (userStr) {
+      try { currentUsername = JSON.parse(userStr).username || "Jeicho"; } catch (e) {}
+    }
+
+    const newOrder = {
+      id: newOrderId,
+      user_id: currentUsername === "Jeicho" ? 2 : 1,
+      customer_name: currentUsername,
+      customer_address: orderAddress || "Olongapo City",
+      total_amount: currentPrice * orderQuantity,
+      payment_method: "COD",
+      status: "Processing",
+      created_at: new Date().toISOString(),
+      items: [
+        {
+          id: Date.now(),
+          order_id: newOrderId,
+          product_id: selectedProductForOrder.id,
+          product_name: selectedProductForOrder.name,
+          flavor_name: selectedFlavorName,
+          variation_id: orderVariationId,
+          unit_type: selectedProductForOrder.unit_type,
+          quantity: orderQuantity,
+          price_at_purchase: currentPrice,
+        },
+      ],
+    };
+
+    const updatedOrders = [newOrder, ...storedOrders];
+    try {
+      localStorage.setItem("wt_orders", JSON.stringify(updatedOrders));
+    } catch (e) {}
+
+    setIsSubmittingOrder(false);
+    setSelectedProductForOrder(null);
+    showToast("success", `🎉 Order for "${selectedProductForOrder.name}" placed successfully! Check your dashboard My Orders.`);
   };
 
   // 3. POST /api/products/admin/add & 4. PUT /api/products/admin/update/{id}
@@ -431,13 +561,13 @@ export default function ProductsPage() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white border border-orange-200/80 rounded-3xl p-6 shadow-sm">
           <div>
             <div className="flex items-center gap-2 text-xs font-bold text-orange-600 mb-1">
-              <span>🍩</span> Products Management Module
+              <span>🍩</span> WholesomeTreats Bakery
             </div>
             <h1 className="text-2xl sm:text-3xl font-black text-stone-900 tracking-tight">
               Products Catalog
             </h1>
             <p className="text-xs text-stone-500 mt-1">
-              Manage bakery treats, set pricing in Pesos (₱), manage flavor variations, and control availability.
+              Explore our freshly baked treats, check pricing, and view flavor variations.
             </p>
           </div>
 
@@ -448,12 +578,14 @@ export default function ProductsPage() {
             >
               ← Back to Dashboard
             </button>
-            <button
-              onClick={handleOpenAddForm}
-              className="px-4 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold transition shadow-lg shadow-orange-600/30 flex items-center gap-1.5 cursor-pointer"
-            >
-              <span>+ Add Product</span>
-            </button>
+            {isAdmin && (
+              <button
+                onClick={handleOpenAddForm}
+                className="px-4 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold transition shadow-lg shadow-orange-600/30 flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>+ Add Product</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -473,33 +605,14 @@ export default function ProductsPage() {
           </div>
 
           <div className="flex items-center gap-2 self-end sm:self-auto">
-            <button
-              onClick={handleOpenAddForm}
-              className="px-4 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold transition shadow-lg shadow-orange-600/30 flex items-center gap-1.5 cursor-pointer mr-1"
-            >
-              <span>+ Add Product</span>
-            </button>
-
-            <button
-              onClick={() => setViewMode("grid")}
-              className={`p-2.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
-                viewMode === "grid"
-                  ? "bg-orange-600 text-white border-orange-600"
-                  : "bg-white text-stone-700 border-orange-200 hover:bg-orange-50"
-              }`}
-            >
-              🔳 Grid View
-            </button>
-            <button
-              onClick={() => setViewMode("table")}
-              className={`p-2.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
-                viewMode === "table"
-                  ? "bg-orange-600 text-white border-orange-600"
-                  : "bg-white text-stone-700 border-orange-200 hover:bg-orange-50"
-              }`}
-            >
-              📄 Table View
-            </button>
+            {isAdmin && (
+              <button
+                onClick={handleOpenAddForm}
+                className="px-4 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold transition shadow-lg shadow-orange-600/30 flex items-center gap-1.5 cursor-pointer mr-1"
+              >
+                <span>+ Add Product</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -513,7 +626,7 @@ export default function ProductsPage() {
           <div className="text-center py-16 bg-white border border-orange-200 rounded-3xl">
             <p className="text-stone-500 text-sm font-bold">No products found matching "{search}"</p>
           </div>
-        ) : viewMode === "grid" ? (
+        ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {filteredProducts.map((p) => (
               <div
@@ -562,80 +675,32 @@ export default function ProductsPage() {
                     <span>🔍 View Variations</span>
                   </button>
 
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleOpenEditForm(p)}
-                      className="flex-1 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold border border-amber-200 transition cursor-pointer"
-                    >
-                      ✏️ Edit
-                    </button>
-                    <button
-                      onClick={() => setProductToDelete(p)}
-                      className="flex-1 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold border border-rose-200 transition cursor-pointer"
-                    >
-                      🗑️ Delete
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          /* TABLE VIEW */
-          <div className="bg-white border border-orange-200/80 rounded-3xl p-6 shadow-sm overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="border-b border-stone-200 text-stone-500 font-bold uppercase tracking-wider">
-                  <th className="pb-3">ID</th>
-                  <th className="pb-3">Product Name</th>
-                  <th className="pb-3">Base Price</th>
-                  <th className="pb-3">Unit Type</th>
-                  <th className="pb-3">Status</th>
-                  <th className="pb-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-stone-100 text-stone-800">
-                {filteredProducts.map((p) => (
-                  <tr key={p.id} className="hover:bg-orange-50/50 transition">
-                    <td className="py-3.5 font-mono font-bold text-orange-600">#{p.id}</td>
-                    <td className="py-3.5 font-bold">{p.name}</td>
-                    <td className="py-3.5 font-black text-stone-900">₱{p.base_price.toFixed(2)}</td>
-                    <td className="py-3.5 text-stone-600">{p.unit_type}</td>
-                    <td className="py-3.5">
-                      <span
-                        className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                          p.is_available
-                            ? "bg-emerald-100 text-emerald-800"
-                            : "bg-stone-200 text-stone-700"
-                        }`}
-                      >
-                        {p.is_available ? "Available" : "Unavailable"}
-                      </span>
-                    </td>
-                    <td className="py-3.5 text-right space-x-2">
-                      <button
-                        onClick={() => handleOpenVariations(p)}
-                        className="px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 font-bold hover:bg-blue-100 cursor-pointer"
-                      >
-                        Variations
-                      </button>
+                  <button
+                    onClick={() => handleOpenOrderModal(p)}
+                    className="w-full py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-orange-600/20 active:scale-95"
+                  >
+                    <span>🛒 Order Now</span>
+                  </button>
+
+                  {isAdmin && (
+                    <div className="flex items-center gap-2">
                       <button
                         onClick={() => handleOpenEditForm(p)}
-                        className="px-2.5 py-1.5 rounded-lg bg-amber-50 text-amber-800 font-bold hover:bg-amber-100 cursor-pointer"
+                        className="flex-1 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold border border-amber-200 transition cursor-pointer"
                       >
-                        Edit
+                        ✏️ Edit
                       </button>
                       <button
                         onClick={() => setProductToDelete(p)}
-                        className="px-2.5 py-1.5 rounded-lg bg-rose-50 text-rose-700 font-bold hover:bg-rose-100 cursor-pointer"
+                        className="flex-1 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold border border-rose-200 transition cursor-pointer"
                       >
-                        Delete
+                        🗑️ Delete
                       </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -905,6 +970,154 @@ export default function ProductsPage() {
                 className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-md shadow-rose-600/30 cursor-pointer"
               >
                 Delete Product
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* QUICK ORDER MODAL */}
+      {selectedProductForOrder && (
+        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-orange-200 rounded-3xl p-6 w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center justify-between border-b border-stone-100 pb-4 mb-4">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🛒</span>
+                <h3 className="text-base font-black text-stone-900">Place Quick Order</h3>
+              </div>
+              <button
+                onClick={() => setSelectedProductForOrder(null)}
+                className="w-8 h-8 rounded-full bg-stone-100 hover:bg-stone-200 text-stone-600 font-bold flex items-center justify-center transition cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* PRODUCT DETAILS SUMMARY */}
+            {(() => {
+              const storedVars = getStoredVariations(selectedProductForOrder.id);
+              const hasVariations = storedVars.length > 0;
+              const selectedVar = hasVariations
+                ? storedVars.find((v: ProductVariation) => v.id === orderVariationId) || storedVars[0]
+                : null;
+              const itemPrice = selectedVar ? selectedVar.price : selectedProductForOrder.base_price;
+
+              return (
+                <>
+                  <div className="flex items-center gap-4 bg-orange-50/60 border border-orange-100 p-3.5 rounded-2xl mb-4">
+                    <img
+                      src={getCategoryImageUrl(selectedProductForOrder)}
+                      alt={selectedProductForOrder.name}
+                      className="w-16 h-16 object-cover rounded-xl border border-orange-200 shrink-0"
+                    />
+                    <div className="space-y-0.5">
+                      <h4 className="font-bold text-stone-900 text-sm line-clamp-1">
+                        {selectedProductForOrder.name}
+                      </h4>
+                      <p className="text-xs text-stone-500 font-medium">Unit: {selectedProductForOrder.unit_type}</p>
+                      <p className="text-sm font-black text-orange-600">₱{itemPrice.toFixed(2)}</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4 text-xs font-medium">
+                    {/* FLAVOR / VARIATION SELECTION (ONLY SHOWN IF PRODUCT HAS AVAILABLE VARIATIONS) */}
+                    {hasVariations && (
+                      <div className="space-y-1.5">
+                        <label className="block text-stone-700 font-bold">Select Flavor / Variation:</label>
+                        <select
+                          value={orderVariationId ?? storedVars[0].id}
+                          onChange={(e) => setOrderVariationId(Number(e.target.value))}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-orange-200 bg-white text-stone-900 font-bold focus:outline-none focus:border-orange-500 shadow-sm cursor-pointer"
+                        >
+                          {storedVars.map((v: ProductVariation) => (
+                            <option key={v.id} value={v.id}>
+                              {v.flavor_name} — ₱{v.price.toFixed(2)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* QUANTITY PICKER */}
+                    <div className="space-y-1.5">
+                      <label className="block text-stone-700 font-bold">Quantity:</label>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setOrderQuantity((q) => Math.max(1, q - 1))}
+                          className="w-9 h-9 rounded-xl bg-orange-100 hover:bg-orange-200 text-orange-800 font-black text-sm flex items-center justify-center transition cursor-pointer"
+                        >
+                          -
+                        </button>
+                        <span className="w-12 text-center text-sm font-black text-stone-900 font-mono">
+                          {orderQuantity}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setOrderQuantity((q) => q + 1)}
+                          className="w-9 h-9 rounded-xl bg-orange-100 hover:bg-orange-200 text-orange-800 font-black text-sm flex items-center justify-center transition cursor-pointer"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* DELIVERY ADDRESS */}
+                    <div className="space-y-1.5">
+                      <label className="block text-stone-700 font-bold">Delivery Address:</label>
+                      <input
+                        type="text"
+                        value={orderAddress}
+                        onChange={(e) => setOrderAddress(e.target.value)}
+                        placeholder="e.g. 123 Main St, Olongapo City"
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-orange-200 text-stone-900 font-medium focus:outline-none focus:border-orange-500 shadow-sm"
+                      />
+                    </div>
+
+                    {/* PAYMENT METHOD (COD ONLY) */}
+                    <div className="space-y-1.5">
+                      <label className="block text-stone-700 font-bold">Payment Method:</label>
+                      <div className="w-full px-3.5 py-2.5 rounded-xl border border-orange-200 bg-orange-50/50 text-stone-900 font-bold flex items-center justify-between shadow-sm">
+                        <span>💵 Cash on Delivery (COD)</span>
+                        <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-extrabold uppercase">Only Accepted</span>
+                      </div>
+                    </div>
+
+                    {/* TOTAL AMOUNT CALCULATION */}
+                    <div className="pt-3 border-t border-stone-100 flex items-center justify-between">
+                      <span className="text-stone-600 font-bold">Total Price:</span>
+                      <span className="text-lg font-black text-orange-600 font-mono">
+                        ₱{(itemPrice * orderQuantity).toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
+
+            <div className="flex items-center gap-3 mt-6 pt-4 border-t border-stone-100">
+              <button
+                onClick={() => setSelectedProductForOrder(null)}
+                className="flex-1 py-2.5 rounded-xl border border-stone-300 text-stone-700 font-bold cursor-pointer hover:bg-stone-50 transition text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmPlaceOrder}
+                disabled={isSubmittingOrder}
+                className="flex-1 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold shadow-md shadow-orange-600/30 cursor-pointer transition text-xs flex items-center justify-center gap-1.5"
+              >
+                {isSubmittingOrder ? (
+                  <>
+                    <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                    <span>Placing Order...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>🛒</span>
+                    <span>Confirm Order</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

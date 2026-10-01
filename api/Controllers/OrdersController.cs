@@ -58,8 +58,36 @@ namespace API.Controllers
             }
 
             int orderId = await _ordersRepository.CreateOrderAsync(userId, summaryItems);
+            await _ordersRepository.UpdateOrderStatusAsync(orderId, "Processing");
 
             return Ok(new { message = "Order placed successfully via Cash on Delivery!", orderId = orderId });
+        }
+
+        [HttpPost("direct")]
+        public async Task<IActionResult> PlaceDirectOrder([FromBody] DirectOrderRequest request)
+        {
+            int userId = GetCurrentUserId();
+
+            if (request == null || request.ProductId <= 0 || request.Quantity <= 0)
+            {
+                return BadRequest(new { message = "Invalid order details provided." });
+            }
+
+            var summaryItems = new List<CartItemSummary>
+            {
+                new CartItemSummary
+                {
+                    ProductId = request.ProductId,
+                    VariationId = request.VariationId,
+                    Quantity = request.Quantity,
+                    Price = request.Price > 0 ? request.Price : 45.00m
+                }
+            };
+
+            int orderId = await _ordersRepository.CreateOrderAsync(userId, summaryItems);
+            await _ordersRepository.UpdateOrderStatusAsync(orderId, "Processing");
+
+            return Ok(new { message = "Order placed successfully!", orderId = orderId });
         }
 
         [HttpGet("my-orders")]

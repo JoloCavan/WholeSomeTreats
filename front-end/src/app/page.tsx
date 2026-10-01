@@ -79,15 +79,9 @@ export default function AuthPage() {
           message: data?.message || "Login successful!",
         });
 
-        // Navigate based on role: Admin to /dashboard, Customer to /products
+        // Navigate straight to /dashboard for all users
         setTimeout(() => {
-          const userRole = data?.role || data?.user?.role;
-          const userRoleId = data?.roleId || data?.user?.roleId;
-          if (userRole === "Admin" || userRoleId === 1) {
-            router.push("/dashboard");
-          } else {
-            router.push("/products");
-          }
+          router.push("/dashboard");
         }, 1000);
       } else {
         const errorData = await res.json().catch(() => ({}));

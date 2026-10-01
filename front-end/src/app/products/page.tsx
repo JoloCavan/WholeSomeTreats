@@ -188,6 +188,9 @@ export default function ProductsPage() {
   const [orderVariationId, setOrderVariationId] = useState<number | null>(null);
   const [orderAddress, setOrderAddress] = useState<string>("Olongapo City");
   const [orderPaymentMethod, setOrderPaymentMethod] = useState<string>("COD");
+  const [orderDeliveryDate, setOrderDeliveryDate] = useState<string>(
+    new Date(Date.now() + 86400000).toISOString().split("T")[0]
+  );
   const [isSubmittingOrder, setIsSubmittingOrder] = useState<boolean>(false);
 
   // Toast State
@@ -311,6 +314,13 @@ export default function ProductsPage() {
     setOrderQuantity(1);
     setOrderAddress(localStorage.getItem("wt_user_address") || "Olongapo City");
     setOrderPaymentMethod("COD");
+    
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const year = tomorrow.getFullYear();
+    const month = String(tomorrow.getMonth() + 1).padStart(2, "0");
+    const day = String(tomorrow.getDate()).padStart(2, "0");
+    setOrderDeliveryDate(`${year}-${month}-${day}`);
 
     const storedVars = getStoredVariations(product.id);
     if (storedVars.length > 0) {
@@ -336,6 +346,25 @@ export default function ProductsPage() {
       }
     }
 
+    const userStr = localStorage.getItem("user");
+    let currentUserId = 2;
+    let currentCustomerName = "Customer";
+    if (userStr) {
+      try {
+        const u = JSON.parse(userStr);
+        currentCustomerName = u.full_name || u.username || "Customer";
+        if (u.id) {
+          currentUserId = u.id;
+        } else if (u.username?.toLowerCase() === "wholesome") {
+          currentUserId = 1;
+        } else if (u.username?.toLowerCase() === "jeicho") {
+          currentUserId = 2;
+        } else {
+          currentUserId = 3;
+        }
+      } catch (e) {}
+    }
+
     const payload = {
       productId: selectedProductForOrder.id,
       variationId: orderVariationId,
@@ -343,6 +372,9 @@ export default function ProductsPage() {
       price: currentPrice,
       paymentMethod: "COD",
       customerAddress: orderAddress,
+      deliveryDate: orderDeliveryDate,
+      userId: currentUserId,
+      customerName: currentCustomerName,
     };
 
     let newOrderId = Date.now();
@@ -371,17 +403,12 @@ export default function ProductsPage() {
       if (raw) storedOrders = JSON.parse(raw);
     } catch (e) {}
 
-    const userStr = localStorage.getItem("user");
-    let currentUsername = "Jeicho";
-    if (userStr) {
-      try { currentUsername = JSON.parse(userStr).username || "Jeicho"; } catch (e) {}
-    }
-
     const newOrder = {
       id: newOrderId,
-      user_id: currentUsername === "Jeicho" ? 2 : 1,
-      customer_name: currentUsername,
+      user_id: currentUserId,
+      customer_name: currentCustomerName,
       customer_address: orderAddress || "Olongapo City",
+      delivery_date: orderDeliveryDate,
       total_amount: currentPrice * orderQuantity,
       payment_method: "COD",
       status: "Processing",
@@ -1071,6 +1098,21 @@ export default function ProductsPage() {
                         onChange={(e) => setOrderAddress(e.target.value)}
                         placeholder="e.g. 123 Main St, Olongapo City"
                         className="w-full px-3.5 py-2.5 rounded-xl border border-orange-200 text-stone-900 font-medium focus:outline-none focus:border-orange-500 shadow-sm"
+                      />
+                    </div>
+
+                    {/* PREFERRED DELIVERY DATE */}
+                    <div className="space-y-1.5">
+                      <label className="block text-stone-700 font-bold flex items-center justify-between">
+                        <span>📅 Preferred Delivery Date:</span>
+                        <span className="text-[10px] text-orange-600 font-normal">Choose delivery date</span>
+                      </label>
+                      <input
+                        type="date"
+                        value={orderDeliveryDate}
+                        min={new Date().toISOString().split("T")[0]}
+                        onChange={(e) => setOrderDeliveryDate(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-orange-200 bg-white text-stone-900 font-medium focus:outline-none focus:border-orange-500 shadow-sm cursor-pointer"
                       />
                     </div>
 

@@ -35,7 +35,8 @@ namespace API.OrdersModule
                 Status = reader.GetString(reader.GetOrdinal("status")),
                 CreatedAt = reader.GetDateTime(reader.GetOrdinal("created_at")),
                 CustomerName = GetStringOrEmpty(reader, "customer_name"),
-                CustomerAddress = GetStringOrEmpty(reader, "customer_address")
+                CustomerAddress = GetStringOrEmpty(reader, "customer_address"),
+                DeliveryDate = GetStringOrEmpty(reader, "delivery_date")
             };
         }
 
@@ -117,7 +118,7 @@ namespace API.OrdersModule
             var sql = @"
                 SELECT o.*, 
                        COALESCE(NULLIF(u.full_name, ''), u.username, 'Customer #' || o.user_id) AS customer_name,
-                       COALESCE(NULLIF(u.address, ''), 'Olongapo City') AS customer_address
+                       COALESCE(NULLIF(o.customer_address, ''), NULLIF(u.address, ''), 'Olongapo City') AS customer_address
                 FROM orders o
                 LEFT JOIN users u ON o.user_id = u.id
                 ORDER BY o.created_at DESC";
@@ -129,7 +130,7 @@ namespace API.OrdersModule
             var sql = @"
                 SELECT o.*, 
                        COALESCE(NULLIF(u.full_name, ''), u.username, 'Customer #' || o.user_id) AS customer_name,
-                       COALESCE(NULLIF(u.address, ''), 'Olongapo City') AS customer_address
+                       COALESCE(NULLIF(o.customer_address, ''), NULLIF(u.address, ''), 'Olongapo City') AS customer_address
                 FROM orders o
                 LEFT JOIN users u ON o.user_id = u.id
                 WHERE o.user_id = @userId
@@ -140,6 +141,16 @@ namespace API.OrdersModule
         public async Task UpdateOrderStatusAsync(int orderId, string status)
         {
             await ExecuteNonQueryAsync("UPDATE orders SET status = @status WHERE id = @id", new[] { CreateParameter("status", status), CreateParameter("id", orderId) });
+        }
+
+        public async Task UpdateDeliveryDateAsync(int orderId, string deliveryDate)
+        {
+            await ExecuteNonQueryAsync("UPDATE orders SET delivery_date = @deliveryDate WHERE id = @id", new[] { CreateParameter("deliveryDate", deliveryDate), CreateParameter("id", orderId) });
+        }
+
+        public async Task UpdateCustomerAddressAsync(int orderId, string customerAddress)
+        {
+            await ExecuteNonQueryAsync("UPDATE orders SET customer_address = @customerAddress WHERE id = @id", new[] { CreateParameter("customerAddress", customerAddress), CreateParameter("id", orderId) });
         }
 
         public async Task<bool> CancelOrderAsync(int orderId, int userId)

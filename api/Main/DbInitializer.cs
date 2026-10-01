@@ -43,6 +43,8 @@ namespace API.Main
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number VARCHAR(50) DEFAULT '';",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS address TEXT DEFAULT '';",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'customer';",
+                    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_date VARCHAR(50) DEFAULT '';",
+                    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_address TEXT DEFAULT '';",
                     "UPDATE users SET role = 'customer' WHERE role IS NULL OR role = '';"
                 };
 
@@ -67,6 +69,10 @@ namespace API.Main
 
                     INSERT INTO users (username, full_name, phone_number, address, password_hash, role)
                     VALUES ('Jeicho', 'Jeiricho Lumbag', '09123456755', 'Olongapo City', '123456', 'customer')
+                    ON CONFLICT (username) DO UPDATE SET password_hash = '123456';
+
+                    INSERT INTO users (username, full_name, phone_number, address, password_hash, role)
+                    VALUES ('Jolo', 'Jolo', '09123456789', 'Upper Pacheco Olongapo City', '123456', 'customer')
                     ON CONFLICT (username) DO UPDATE SET password_hash = '123456';
 
                     -- Update any empty/null profile fields for users like Jolo

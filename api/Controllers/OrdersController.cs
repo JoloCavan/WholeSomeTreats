@@ -66,7 +66,7 @@ namespace API.Controllers
         [HttpPost("direct")]
         public async Task<IActionResult> PlaceDirectOrder([FromBody] DirectOrderRequest request)
         {
-            int userId = GetCurrentUserId();
+            int userId = (request != null && request.UserId.HasValue && request.UserId.Value > 0) ? request.UserId.Value : GetCurrentUserId();
 
             if (request == null || request.ProductId <= 0 || request.Quantity <= 0)
             {
@@ -86,6 +86,16 @@ namespace API.Controllers
 
             int orderId = await _ordersRepository.CreateOrderAsync(userId, summaryItems);
             await _ordersRepository.UpdateOrderStatusAsync(orderId, "Processing");
+
+            if (!string.IsNullOrWhiteSpace(request?.DeliveryDate))
+            {
+                await _ordersRepository.UpdateDeliveryDateAsync(orderId, request.DeliveryDate);
+            }
+
+            if (!string.IsNullOrWhiteSpace(request?.CustomerAddress))
+            {
+                await _ordersRepository.UpdateCustomerAddressAsync(orderId, request.CustomerAddress);
+            }
 
             return Ok(new { message = "Order placed successfully!", orderId = orderId });
         }

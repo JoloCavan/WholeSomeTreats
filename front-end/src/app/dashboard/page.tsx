@@ -36,6 +36,7 @@ export interface Order {
   user_id: number;
   customer_name?: string;
   customer_address?: string;
+  delivery_date?: string;
   total_amount: number;
   payment_method: string;
   status: string;
@@ -228,48 +229,10 @@ const saveStoredVariations = (productId: number, vars: ProductVariation[]) => {
   }
 };
 
-const initialOrders: Order[] = [
-  {
-    id: 1001,
-    user_id: 1,
-    customer_name: "Sarah Jenkins",
-    total_amount: 220.0,
-    payment_method: "COD",
-    status: "Pending",
-    created_at: new Date(Date.now() - 7200000).toISOString(),
-    items: [
-      { product_id: 5, product_name: "NewYork Cheesecake", quantity: 1, price_at_purchase: 220.0 }
-    ]
-  },
-  {
-    id: 1002,
-    user_id: 2,
-    customer_name: "Michael Chen",
-    total_amount: 180.0,
-    payment_method: "COD",
-    status: "Processing",
-    created_at: new Date(Date.now() - 86400000).toISOString(),
-    items: [
-      { product_id: 4, product_name: "Burnt Basque Cheesecake", quantity: 1, price_at_purchase: 180.0 }
-    ]
-  },
-  {
-    id: 1003,
-    user_id: 3,
-    customer_name: "Emily Davis",
-    total_amount: 145.0,
-    payment_method: "COD",
-    status: "Completed",
-    created_at: new Date(Date.now() - 172800000).toISOString(),
-    items: [
-      { product_id: 1, product_name: "Chocolate Chip Cookies", quantity: 1, price_at_purchase: 45.0 },
-      { product_id: 2, product_name: "Chewy Cringles", quantity: 1, price_at_purchase: 100.0 }
-    ]
-  }
-];
+const initialOrders: Order[] = [];
 
 const loadStoredOrders = (): Order[] => {
-  if (typeof window === "undefined") return initialOrders;
+  if (typeof window === "undefined") return [];
   try {
     const stored = localStorage.getItem("wt_orders");
     if (stored !== null) {
@@ -279,7 +242,7 @@ const loadStoredOrders = (): Order[] => {
   } catch (e) {
     console.error("Load stored orders error:", e);
   }
-  return initialOrders;
+  return [];
 };
 
 const saveStoredOrders = (items: Order[]) => {
@@ -329,12 +292,57 @@ const saveStoredAnnouncements = (items: Announcement[]) => {
   }
 };
 
+export const formatDeliveryDate = (dateStr?: string | null, createdAtStr?: string): string => {
+  if (!dateStr || dateStr.trim() === "") {
+    if (!createdAtStr) return "";
+    const createdDate = new Date(createdAtStr);
+    createdDate.setDate(createdDate.getDate() + 1);
+    return `${createdDate.getMonth() + 1}/${createdDate.getDate()}/${createdDate.getFullYear()}`;
+  }
+
+  const str = dateStr.trim();
+  if (str.includes("-")) {
+    const cleanStr = str.split("T")[0];
+    const parts = cleanStr.split("-");
+    if (parts.length === 3) {
+      const year = parts[0];
+      const month = parseInt(parts[1], 10);
+      const day = parseInt(parts[2], 10);
+      if (!isNaN(month) && !isNaN(day) && year.length === 4) {
+        return `${month}/${day}/${year}`;
+      }
+    }
+  }
+
+  if (str.includes("/")) {
+    return str;
+  }
+
+  try {
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+    }
+  } catch (e) {}
+
+  return str;
+};
+
+export const getTomorrowLocalDateString = (): string => {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const year = tomorrow.getFullYear();
+  const month = String(tomorrow.getMonth() + 1).padStart(2, "0");
+  const day = String(tomorrow.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 export default function DashboardPage() {
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState("products");
-  const [user, setUser] = useState<{ username?: string; role?: string } | null>(null);
+  const [user, setUser] = useState<{ id?: number; username?: string; full_name?: string; role?: string } | null>(null);
 
   // Products State
   const [products, setProducts] = useState<Product[]>([]);
@@ -397,6 +405,9 @@ export default function DashboardPage() {
   const [orderVariationId, setOrderVariationId] = useState<number | null>(null);
   const [orderAddress, setOrderAddress] = useState<string>("Olongapo City");
   const [orderPaymentMethod, setOrderPaymentMethod] = useState<string>("COD");
+  const [orderDeliveryDate, setOrderDeliveryDate] = useState<string>(
+    new Date(Date.now() + 86400000).toISOString().split("T")[0]
+  );
   const [isSubmittingOrder, setIsSubmittingOrder] = useState<boolean>(false);
 
   // Users State
@@ -408,6 +419,8 @@ export default function DashboardPage() {
   // 1. GET /api/orders/admin/all & GET /api/orders/my-orders
   const fetchOrders = async () => {
     setLoadingOrders(true);
+    let localOrders = loadStoredOrders();
+
     try {
       const res = await fetch("/api/orders/admin/all");
       if (res.ok) {
@@ -416,8 +429,9 @@ export default function DashboardPage() {
           const formatted = data.map((o: any, idx: number) => ({
             id: o.id || o.Id || 1001 + idx,
             user_id: o.user_id || o.userId || 1,
-            customer_name: o.customer_name || `Customer #${o.user_id || o.userId || 1}`,
-            customer_address: o.customer_address || "Olongapo City",
+            customer_name: o.customer_name || o.customerName || `Customer #${o.user_id || o.userId || 1}`,
+            customer_address: o.customer_address || o.customerAddress || "Olongapo City",
+            delivery_date: o.delivery_date || o.deliveryDate || "",
             total_amount: Number(o.total_amount || o.totalAmount || 0),
             payment_method: o.payment_method || o.paymentMethod || "COD",
             status: o.status || o.Status || "Processing",
@@ -425,8 +439,28 @@ export default function DashboardPage() {
             items: o.items || []
           }));
 
-          setOrders(formatted);
-          saveStoredOrders(formatted);
+          const map = new Map<number, Order>();
+          formatted.forEach((o: Order) => map.set(o.id, o));
+          localOrders.forEach((lo: Order) => {
+            if (map.has(lo.id)) {
+              const existing = map.get(lo.id)!;
+              if (lo.customer_name && lo.customer_name !== "Jasmin T. Cavan") {
+                existing.customer_name = lo.customer_name;
+              }
+              if (lo.delivery_date) {
+                existing.delivery_date = lo.delivery_date;
+              }
+              if (lo.customer_address) {
+                existing.customer_address = lo.customer_address;
+              }
+            } else {
+              map.set(lo.id, lo);
+            }
+          });
+          const merged = Array.from(map.values()).sort((a, b) => b.id - a.id);
+
+          setOrders(merged);
+          saveStoredOrders(merged);
           setLoadingOrders(false);
           return;
         }
@@ -435,8 +469,7 @@ export default function DashboardPage() {
       console.log("GET /api/orders/admin/all network notice:", err);
     }
 
-    const stored = loadStoredOrders();
-    setOrders(stored);
+    setOrders(localOrders);
     setLoadingOrders(false);
   };
 
@@ -482,25 +515,23 @@ export default function DashboardPage() {
   // 5. DELETE /api/orders/admin/delete/{orderId}
   const handleDeleteOrder = async () => {
     if (!orderToDelete) return;
+    const targetId = orderToDelete.id;
+
+    // Remove from UI state and localStorage immediately
+    const updated = orders.filter((o) => o.id !== targetId);
+    setOrders(updated);
+    saveStoredOrders(updated);
+    setOrderToDelete(null);
+
     try {
-      const res = await fetch(`/api/orders/admin/delete/${orderToDelete.id}`, {
+      await fetch(`/api/orders/admin/delete/${targetId}`, {
         method: "DELETE",
       });
-      if (res.ok) {
-        await fetchOrders();
-        showToast("success", `Order #${orderToDelete.id} deleted permanently.`);
-        setOrderToDelete(null);
-        return;
-      }
     } catch (err) {
       console.log("DELETE /api/orders/admin/delete notice:", err);
     }
 
-    const updated = orders.filter((o) => o.id !== orderToDelete.id);
-    setOrders(updated);
-    saveStoredOrders(updated);
-    showToast("success", `Order #${orderToDelete.id} deleted.`);
-    setOrderToDelete(null);
+    showToast("success", `Order #${targetId} deleted permanently.`);
   };
 
   // 4. POST /api/orders/checkout
@@ -557,6 +588,7 @@ export default function DashboardPage() {
     setOrderQuantity(1);
     setOrderAddress(localStorage.getItem("wt_user_address") || "Olongapo City");
     setOrderPaymentMethod("COD");
+    setOrderDeliveryDate(new Date(Date.now() + 86400000).toISOString().split("T")[0]);
 
     const storedVars = getStoredVariations(product.id);
     if (storedVars.length > 0) {
@@ -582,6 +614,15 @@ export default function DashboardPage() {
       }
     }
 
+    const loggedUser = user || (typeof window !== "undefined" ? JSON.parse(localStorage.getItem("user") || "{}") : {});
+    let currentUserId = loggedUser?.id;
+    if (!currentUserId) {
+      if (loggedUser?.username?.toLowerCase() === "wholesome") currentUserId = 1;
+      else if (loggedUser?.username?.toLowerCase() === "jeicho") currentUserId = 2;
+      else currentUserId = 3;
+    }
+    const currentCustomerName = loggedUser?.full_name || loggedUser?.username || "Customer";
+
     const payload = {
       productId: selectedProductForOrder.id,
       variationId: orderVariationId,
@@ -589,6 +630,8 @@ export default function DashboardPage() {
       price: currentPrice,
       paymentMethod: "COD",
       customerAddress: orderAddress,
+      deliveryDate: orderDeliveryDate,
+      userId: currentUserId,
     };
 
     let newOrderId = Date.now();
@@ -613,9 +656,10 @@ export default function DashboardPage() {
     const currentOrders = loadStoredOrders();
     const newOrder: Order = {
       id: newOrderId,
-      user_id: user?.username === "Jeicho" ? 2 : 1,
-      customer_name: user?.username || "Jeicho",
+      user_id: currentUserId,
+      customer_name: currentCustomerName,
       customer_address: orderAddress || "Olongapo City",
+      delivery_date: orderDeliveryDate,
       total_amount: currentPrice * orderQuantity,
       payment_method: orderPaymentMethod || "COD",
       status: "Processing",
@@ -888,12 +932,17 @@ export default function DashboardPage() {
     const savedUser = localStorage.getItem("user");
     if (savedUser) {
       try {
-        setUser(JSON.parse(savedUser));
+        const u = JSON.parse(savedUser);
+        if (!u.id) {
+          u.id = u.username?.toLowerCase() === "wholesome" ? 1 : u.username?.toLowerCase() === "jeicho" ? 2 : 3;
+          try { localStorage.setItem("user", JSON.stringify(u)); } catch (e) {}
+        }
+        setUser(u);
       } catch {
-        setUser({ username: "Admin", role: "Administrator" });
+        setUser({ id: 1, username: "Admin", role: "Administrator" });
       }
     } else {
-      setUser({ username: "Admin", role: "Administrator" });
+      setUser({ id: 1, username: "Admin", role: "Administrator" });
     }
   }, []);
 
@@ -1237,7 +1286,9 @@ export default function DashboardPage() {
 
   const isAdmin =
     (user?.role || "").toLowerCase() === "admin" ||
-    (user?.role || "").toLowerCase() === "administrator";
+    (user?.role || "").toLowerCase() === "administrator" ||
+    (user?.role || "") === "1" ||
+    user?.username?.toLowerCase() === "wholesome";
 
   const navItems = [
     { id: "products", label: "Products", icon: "📦" },
@@ -1485,12 +1536,14 @@ export default function DashboardPage() {
                           <span>🔍 View Variations</span>
                         </button>
 
-                        <button
-                          onClick={() => handleOpenOrderModal(p)}
-                          className="w-full py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-orange-600/20 active:scale-95"
-                        >
-                          <span>🛒 Order Now</span>
-                        </button>
+                        {!isAdmin && (
+                          <button
+                            onClick={() => handleOpenOrderModal(p)}
+                            className="w-full py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-orange-600/20 active:scale-95"
+                          >
+                            <span>🛒 Order Now</span>
+                          </button>
+                        )}
 
                         {isAdmin && (
                           <div className="flex items-center gap-2">
@@ -1534,15 +1587,6 @@ export default function DashboardPage() {
                 </div>
 
                 <div className="flex items-center gap-3">
-                  {/* PLACE ORDER CHECKOUT BUTTON (Hidden for Admins) */}
-                  {!isAdmin && (
-                    <button
-                      onClick={() => setIsCheckoutModalOpen(true)}
-                      className="px-4 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold transition shadow-lg shadow-orange-600/30 flex items-center gap-1.5 cursor-pointer shrink-0"
-                    >
-                      <span>+ Checkout Order</span>
-                    </button>
-                  )}
                 </div>
               </div>
 
@@ -1553,9 +1597,14 @@ export default function DashboardPage() {
                   <p className="text-xs font-bold text-stone-600">Loading orders...</p>
                 </div>
               ) : orders.filter((o) => {
+                  if (!isAdmin && user) {
+                    const uName = user.full_name || user.username || "Customer";
+                    if (!o.customer_name || o.customer_name.startsWith("Customer #")) {
+                      o.customer_name = uName;
+                    }
+                  }
                   return (
                     searchOrder === "" ||
-                    `#${o.id}`.toLowerCase().includes(searchOrder.toLowerCase()) ||
                     (o.customer_name || "").toLowerCase().includes(searchOrder.toLowerCase()) ||
                     (o.customer_address || "").toLowerCase().includes(searchOrder.toLowerCase())
                   );
@@ -1568,9 +1617,9 @@ export default function DashboardPage() {
                   <table className="w-full text-left text-xs">
                     <thead>
                       <tr className="border-b border-stone-200 text-stone-500 font-bold uppercase tracking-wider">
-                        <th className="pb-3">Order ID</th>
                         <th className="pb-3">Customer</th>
-                        <th className="pb-3">Date</th>
+                        <th className="pb-3">Order Date</th>
+                        <th className="pb-3">Delivery Date</th>
                         <th className="pb-3">Address</th>
                         <th className="pb-3">Total Amount</th>
                         <th className="pb-3">Payment</th>
@@ -1581,89 +1630,92 @@ export default function DashboardPage() {
                     <tbody className="divide-y divide-stone-100 text-stone-800">
                       {orders
                         .filter((o) => {
+                          if (!isAdmin && user) {
+                            const isUserMatch =
+                              o.user_id === user.id ||
+                              (user.full_name && o.customer_name?.toLowerCase() === user.full_name.toLowerCase()) ||
+                              (user.username && o.customer_name?.toLowerCase() === user.username.toLowerCase());
+                            if (!isUserMatch) return false;
+                          }
                           return (
                             searchOrder === "" ||
-                            `#${o.id}`.toLowerCase().includes(searchOrder.toLowerCase()) ||
                             (o.customer_name || "").toLowerCase().includes(searchOrder.toLowerCase()) ||
                             (o.customer_address || "").toLowerCase().includes(searchOrder.toLowerCase())
                           );
                         })
-                        .map((o) => (
-                          <tr key={o.id} className="hover:bg-orange-50/50 transition">
-                            <td className="py-3.5 font-mono font-bold text-orange-600">#{o.id}</td>
-                            <td className="py-3.5 font-bold">{o.customer_name || `Customer #${o.user_id}`}</td>
-                            <td className="py-3.5 text-stone-500 font-medium">
-                              {new Date(o.created_at).toLocaleDateString()}
-                            </td>
-                            <td className="py-3.5 text-stone-600 font-medium truncate max-w-xs">
-                              {o.customer_address || "Olongapo City"}
-                            </td>
-                            <td className="py-3.5 font-black text-orange-600 text-sm">
-                              ₱{Number(o.total_amount).toFixed(2)}
-                            </td>
-                            <td className="py-3.5">
-                              <span className="px-2 py-0.5 rounded-md bg-stone-100 text-stone-700 font-semibold text-[11px]">
-                                {o.payment_method || "COD"}
-                              </span>
-                            </td>
-                            <td className="py-3.5">
-                              {isAdmin ? (
-                                <select
-                                  value={o.status}
-                                  onChange={(e) => handleUpdateOrderStatus(o.id, e.target.value)}
-                                  className={`px-2.5 py-1 rounded-xl text-xs font-bold border focus:outline-none cursor-pointer ${
-                                    o.status === "Completed"
-                                      ? "bg-emerald-50 text-emerald-700 border-emerald-300"
-                                      : o.status === "Delivering"
-                                      ? "bg-blue-50 text-blue-700 border-blue-300"
-                                      : "bg-amber-50 text-amber-800 border-amber-300"
-                                  }`}
-                                >
-                                  <option value="Processing">Processing</option>
-                                  <option value="Delivering">Delivering</option>
-                                  <option value="Completed">Completed</option>
-                                </select>
-                              ) : (
-                                <span
-                                  className={`px-2.5 py-1 rounded-xl text-xs font-bold border ${
-                                    o.status === "Completed"
-                                      ? "bg-emerald-50 text-emerald-700 border-emerald-300"
-                                      : o.status === "Delivering"
-                                      ? "bg-blue-50 text-blue-700 border-blue-300"
-                                      : "bg-amber-50 text-amber-800 border-amber-300"
-                                  }`}
-                                >
-                                  {o.status}
+                        .map((o) => {
+                          const formattedDeliveryDate = formatDeliveryDate(o.delivery_date, o.created_at);
+
+                          return (
+                            <tr key={o.id} className="hover:bg-orange-50/50 transition">
+                              <td className="py-3.5 font-bold">{o.customer_name || `Customer #${o.user_id}`}</td>
+                              <td className="py-3.5 text-stone-500 font-medium">
+                                {new Date(o.created_at).toLocaleDateString()}
+                              </td>
+                              <td className="py-3.5 font-semibold text-stone-700">
+                                {formattedDeliveryDate}
+                              </td>
+                              <td className="py-3.5 text-stone-600 font-medium truncate max-w-xs">
+                                {o.customer_address || "Olongapo City"}
+                              </td>
+                              <td className="py-3.5 font-black text-orange-600 text-sm">
+                                ₱{Number(o.total_amount).toFixed(2)}
+                              </td>
+                              <td className="py-3.5">
+                                <span className="px-2 py-0.5 rounded-md bg-stone-100 text-stone-700 font-semibold text-[11px]">
+                                  {o.payment_method || "COD"}
                                 </span>
-                              )}
-                            </td>
-                            <td className="py-3.5 text-right space-x-2">
-                              <button
-                                onClick={() => setSelectedOrderDetails(o)}
-                                className="px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 font-bold hover:bg-blue-100 cursor-pointer"
-                              >
-                                Details
-                              </button>
-                              {isAdmin && (
-                                o.status === "Completed" || o.status === "Cancelled" ? (
+                              </td>
+                              <td className="py-3.5">
+                                {isAdmin ? (
+                                  <select
+                                    value={o.status}
+                                    onChange={(e) => handleUpdateOrderStatus(o.id, e.target.value)}
+                                    className={`px-2.5 py-1 rounded-xl text-xs font-bold border focus:outline-none cursor-pointer ${
+                                      o.status === "Completed"
+                                        ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                                        : o.status === "Delivering"
+                                        ? "bg-blue-50 text-blue-700 border-blue-300"
+                                        : "bg-amber-50 text-amber-800 border-amber-300"
+                                    }`}
+                                  >
+                                    <option value="Processing">Processing</option>
+                                    <option value="Delivering">Delivering</option>
+                                    <option value="Completed">Completed</option>
+                                  </select>
+                                ) : (
+                                  <span
+                                    className={`px-2.5 py-1 rounded-xl text-xs font-bold border ${
+                                      o.status === "Completed"
+                                        ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                                        : o.status === "Delivering"
+                                        ? "bg-blue-50 text-blue-700 border-blue-300"
+                                        : "bg-amber-50 text-amber-800 border-amber-300"
+                                    }`}
+                                  >
+                                    {o.status}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-3.5 text-right space-x-2">
+                                <button
+                                  onClick={() => setSelectedOrderDetails(o)}
+                                  className="px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 font-bold hover:bg-blue-100 cursor-pointer"
+                                >
+                                  Details
+                                </button>
+                                {isAdmin && (
                                   <button
                                     onClick={() => setOrderToDelete(o)}
                                     className="px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold cursor-pointer shadow-sm transition"
                                   >
                                     Delete
                                   </button>
-                                ) : (
-                                  <button
-                                    onClick={() => handleCancelOrder(o.id)}
-                                    className="px-2.5 py-1.5 rounded-lg bg-rose-50 text-rose-700 font-bold hover:bg-rose-100 cursor-pointer"
-                                  >
-                                    Cancel
-                                  </button>
-                                )
-                              )}
-                            </td>
-                          </tr>
-                        ))}
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
                     </tbody>
                   </table>
                 </div>
@@ -2968,6 +3020,21 @@ export default function DashboardPage() {
                         onChange={(e) => setOrderAddress(e.target.value)}
                         placeholder="e.g. 123 Main St, Olongapo City"
                         className="w-full px-3.5 py-2.5 rounded-xl border border-orange-200 text-stone-900 font-medium focus:outline-none focus:border-orange-500 shadow-sm"
+                      />
+                    </div>
+
+                    {/* PREFERRED DELIVERY DATE */}
+                    <div className="space-y-1.5">
+                      <label className="block text-stone-700 font-bold flex items-center justify-between">
+                        <span>📅 Preferred Delivery Date:</span>
+                        <span className="text-[10px] text-orange-600 font-normal">Choose delivery date</span>
+                      </label>
+                      <input
+                        type="date"
+                        value={orderDeliveryDate}
+                        min={new Date().toISOString().split("T")[0]}
+                        onChange={(e) => setOrderDeliveryDate(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-orange-200 bg-white text-stone-900 font-medium focus:outline-none focus:border-orange-500 shadow-sm cursor-pointer"
                       />
                     </div>
 

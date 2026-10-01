@@ -31,5 +31,8 @@ namespace API.OrdersModule
 
         [JsonPropertyName("customer_address")]
         public string CustomerAddress { get; set; } = string.Empty;
+
+        [JsonPropertyName("delivery_date")]
+        public string DeliveryDate { get; set; } = string.Empty;
     }
 }

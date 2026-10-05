@@ -80,6 +80,13 @@ export default function AuthPage() {
         if (data?.user) localStorage.setItem("user", JSON.stringify(data.user));
         else localStorage.setItem("user", JSON.stringify({ username, role: data?.role || "customer", roleId: data?.roleId || 2 }));
 
+        const userRole = (data?.role || data?.user?.role || "").toLowerCase();
+        if (userRole === "admin" || data?.roleId === 1) {
+          localStorage.setItem("wt_active_tab", "orders");
+        } else {
+          localStorage.setItem("wt_active_tab", "products");
+        }
+
         setToast({
           type: "success",
           message: data?.message || "Login successful!",

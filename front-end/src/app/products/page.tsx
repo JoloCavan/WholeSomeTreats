@@ -48,7 +48,7 @@ const initialProducts: Product[] = [
     id: 4,
     name: "Burnt Basque Cheesecake",
     base_price: 180.0,
-    unit_type: "whole",
+    unit_type: "piece",
     image_url: "/images/burnt_basque_cheesecake.jpg",
     is_available: true,
   },
@@ -56,7 +56,7 @@ const initialProducts: Product[] = [
     id: 5,
     name: "NewYork Cheesecake",
     base_price: 220.0,
-    unit_type: "whole",
+    unit_type: "piece",
     image_url: "/images/newyork_cheesecake.jpg",
     is_available: true,
   },
@@ -110,18 +110,33 @@ const saveStoredProducts = (items: Product[]) => {
   }
 };
 
+export const defaultCheesecakeVariations: Record<number, ProductVariation[]> = {
+  4: [
+    { id: 1, product_id: 4, flavor_name: "Original", price: 180.0 },
+    { id: 2, product_id: 4, flavor_name: "Strawberry", price: 200.0 },
+    { id: 3, product_id: 4, flavor_name: "Blueberry", price: 200.0 },
+    { id: 4, product_id: 4, flavor_name: "Mango", price: 200.0 },
+  ],
+  5: [
+    { id: 5, product_id: 5, flavor_name: "Original", price: 220.0 },
+    { id: 6, product_id: 5, flavor_name: "Strawberry", price: 240.0 },
+    { id: 7, product_id: 5, flavor_name: "Blueberry", price: 240.0 },
+    { id: 8, product_id: 5, flavor_name: "Mango", price: 240.0 },
+  ],
+};
+
 const getStoredVariations = (productId: number): ProductVariation[] => {
-  if (typeof window === "undefined") return [];
+  if (typeof window === "undefined") return defaultCheesecakeVariations[productId] || [];
   try {
     const raw = localStorage.getItem(`wt_variations_${productId}`);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
     }
   } catch (e) {
     console.error("Get variations error:", e);
   }
-  return [];
+  return defaultCheesecakeVariations[productId] || [];
 };
 
 const saveStoredVariations = (productId: number, vars: ProductVariation[]) => {

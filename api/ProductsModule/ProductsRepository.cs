@@ -9,16 +9,26 @@ namespace API.ProductsModule
 {
     public class ProductsRepository : BaseRepository, IProductsRepository
     {
-        // In-memory fallback list to ensure Owner Account operations always work seamlessly
         private static readonly List<Product> FallbackProducts = new()
         {
-            new Product { Id = 1, Name = "Chocolate Chip Cookies", BasePrice = 45.00m, UnitType = "pc", ImageUrl = "https://images.unsplash.com/photo-1499636136210-6f4ee915583e?w=400&q=80", IsAvailable = true },
-            new Product { Id = 2, Name = "Chewy Cringles", BasePrice = 100.00m, UnitType = "dozen", ImageUrl = "https://images.unsplash.com/photo-1558961363-fa8fdf82db35?w=400&q=80", IsAvailable = true },
-            new Product { Id = 3, Name = "Chocolate Chip Nutty Banana Bread", BasePrice = 150.00m, UnitType = "loaf", ImageUrl = "https://images.unsplash.com/photo-1509440159596-0249088772ff?w=400&q=80", IsAvailable = true },
-            new Product { Id = 4, Name = "Burnt Basque Cheesecake", BasePrice = 180.00m, UnitType = "whole", ImageUrl = "https://images.unsplash.com/photo-1533134242443-d4fd215305ad?w=400&q=80", IsAvailable = true }
+            new Product { Id = 1, Name = "Chocolate Chip Cookies", BasePrice = 45.00m, UnitType = "pc", ImageUrl = "/images/chocolate_chip_cookie.jpg", IsAvailable = true },
+            new Product { Id = 2, Name = "Chewy Cringles", BasePrice = 100.00m, UnitType = "dozen", ImageUrl = "/images/chewy_cringles.jpg", IsAvailable = true },
+            new Product { Id = 3, Name = "Chocolate Chip Nutty Banana Bread", BasePrice = 150.00m, UnitType = "loaf", ImageUrl = "/images/banana_bread.jpg", IsAvailable = true },
+            new Product { Id = 4, Name = "Burnt Basque Cheesecake", BasePrice = 180.00m, UnitType = "piece", ImageUrl = "/images/burnt_basque_cheesecake.jpg", IsAvailable = true },
+            new Product { Id = 5, Name = "NewYork Cheesecake", BasePrice = 220.00m, UnitType = "piece", ImageUrl = "/images/newyork_cheesecake.jpg", IsAvailable = true }
         };
 
-        private static readonly List<ProductVariation> FallbackVariations = new();
+        private static readonly List<ProductVariation> FallbackVariations = new()
+        {
+            new ProductVariation { Id = 1, ProductId = 4, FlavorName = "Original", Price = 180.00m },
+            new ProductVariation { Id = 2, ProductId = 4, FlavorName = "Strawberry", Price = 200.00m },
+            new ProductVariation { Id = 3, ProductId = 4, FlavorName = "Blueberry", Price = 200.00m },
+            new ProductVariation { Id = 4, ProductId = 4, FlavorName = "Mango", Price = 200.00m },
+            new ProductVariation { Id = 5, ProductId = 5, FlavorName = "Original", Price = 220.00m },
+            new ProductVariation { Id = 6, ProductId = 5, FlavorName = "Strawberry", Price = 240.00m },
+            new ProductVariation { Id = 7, ProductId = 5, FlavorName = "Blueberry", Price = 240.00m },
+            new ProductVariation { Id = 8, ProductId = 5, FlavorName = "Mango", Price = 240.00m }
+        };
 
         public ProductsRepository(MyCon dbConnection) : base(dbConnection) { }
 

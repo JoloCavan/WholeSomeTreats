@@ -166,20 +166,46 @@ namespace API.Main
                         ('Chocolate Chip Cookies', 45.00, 'pc', '/images/chocolate_chip_cookie.jpg', true),
                         ('Chewy Cringles', 100.00, 'dozen', '/images/chewy_cringles.jpg', true),
                         ('Chocolate Chip Nutty Banana Bread', 150.00, 'loaf', '/images/banana_bread.jpg', true),
-                        ('Burnt Basque Cheesecake', 180.00, 'whole', '/images/burnt_basque_cheesecake.jpg', true),
-                        ('NewYork Cheesecake', 220.00, 'whole', '/images/newyork_cheesecake.jpg', true);
+                        ('Burnt Basque Cheesecake', 180.00, 'piece', '/images/burnt_basque_cheesecake.jpg', true),
+                        ('NewYork Cheesecake', 240.00, 'piece', '/images/newyork_cheesecake.jpg', true);
                     ";
                     await cmd.ExecuteNonQueryAsync();
                     Console.WriteLine("🌱 [DbInitializer] Seeded initial products (#1 to #5).");
                 }
 
-                // Always ensure product images match the categorized uploaded image assets
+                // Always ensure product images, unit types, and prices are up to date
                 cmd.CommandText = @"
                     UPDATE products SET image_url = '/images/chocolate_chip_cookie.jpg' WHERE id = 1 OR LOWER(name) LIKE '%cookie%';
                     UPDATE products SET image_url = '/images/chewy_cringles.jpg' WHERE id = 2 OR LOWER(name) LIKE '%cringle%';
                     UPDATE products SET image_url = '/images/banana_bread.jpg' WHERE id = 3 OR LOWER(name) LIKE '%banana%';
-                    UPDATE products SET image_url = '/images/burnt_basque_cheesecake.jpg' WHERE id = 4 OR LOWER(name) LIKE '%burnt%';
-                    UPDATE products SET image_url = '/images/newyork_cheesecake.jpg' WHERE id = 5 OR LOWER(name) LIKE '%newyork%' OR LOWER(name) LIKE '%new york%';
+                    UPDATE products SET image_url = '/images/burnt_basque_cheesecake.jpg', unit_type = 'piece' WHERE id = 4 OR LOWER(name) LIKE '%burnt%';
+                    UPDATE products SET image_url = '/images/newyork_cheesecake.jpg', unit_type = 'piece', base_price = 220.00 WHERE id = 5 OR LOWER(name) LIKE '%newyork%' OR LOWER(name) LIKE '%new york%';
+
+                    -- Seed / Update default flavor variations for Burnt Basque Cheesecake (id 4)
+                    INSERT INTO product_variations (product_id, flavor_name, price)
+                    SELECT 4, 'Original', 180.00 WHERE NOT EXISTS (SELECT 1 FROM product_variations WHERE product_id = 4 AND flavor_name = 'Original');
+                    INSERT INTO product_variations (product_id, flavor_name, price)
+                    SELECT 4, 'Strawberry', 200.00 WHERE NOT EXISTS (SELECT 1 FROM product_variations WHERE product_id = 4 AND flavor_name = 'Strawberry');
+                    INSERT INTO product_variations (product_id, flavor_name, price)
+                    SELECT 4, 'Blueberry', 200.00 WHERE NOT EXISTS (SELECT 1 FROM product_variations WHERE product_id = 4 AND flavor_name = 'Blueberry');
+                    INSERT INTO product_variations (product_id, flavor_name, price)
+                    SELECT 4, 'Mango', 200.00 WHERE NOT EXISTS (SELECT 1 FROM product_variations WHERE product_id = 4 AND flavor_name = 'Mango');
+
+                    UPDATE product_variations SET price = 180.00 WHERE product_id = 4 AND LOWER(flavor_name) = 'original';
+                    UPDATE product_variations SET price = 200.00 WHERE product_id = 4 AND LOWER(flavor_name) IN ('strawberry', 'blueberry', 'mango');
+
+                    -- Seed / Update default flavor variations for NewYork Cheesecake (id 5)
+                    INSERT INTO product_variations (product_id, flavor_name, price)
+                    SELECT 5, 'Original', 220.00 WHERE NOT EXISTS (SELECT 1 FROM product_variations WHERE product_id = 5 AND flavor_name = 'Original');
+                    INSERT INTO product_variations (product_id, flavor_name, price)
+                    SELECT 5, 'Strawberry', 240.00 WHERE NOT EXISTS (SELECT 1 FROM product_variations WHERE product_id = 5 AND flavor_name = 'Strawberry');
+                    INSERT INTO product_variations (product_id, flavor_name, price)
+                    SELECT 5, 'Blueberry', 240.00 WHERE NOT EXISTS (SELECT 1 FROM product_variations WHERE product_id = 5 AND flavor_name = 'Blueberry');
+                    INSERT INTO product_variations (product_id, flavor_name, price)
+                    SELECT 5, 'Mango', 240.00 WHERE NOT EXISTS (SELECT 1 FROM product_variations WHERE product_id = 5 AND flavor_name = 'Mango');
+
+                    UPDATE product_variations SET price = 220.00 WHERE product_id = 5 AND LOWER(flavor_name) = 'original';
+                    UPDATE product_variations SET price = 240.00 WHERE product_id = 5 AND LOWER(flavor_name) IN ('strawberry', 'blueberry', 'mango');
                 ";
                 await cmd.ExecuteNonQueryAsync();
 

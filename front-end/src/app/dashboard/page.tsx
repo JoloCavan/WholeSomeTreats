@@ -273,7 +273,9 @@ const loadStoredOrders = (): Order[] => {
     const stored = localStorage.getItem("wt_orders");
     if (stored !== null) {
       const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) {
+        return parsed.filter((o: Order) => !(o.id <= 3 && (o.customer_name === "Jasmin T. Cavan" || !o.customer_name)));
+      }
     }
   } catch (e) {
     console.error("Load stored orders error:", e);
@@ -679,7 +681,9 @@ export default function DashboardPage() {
               map.set(lo.id, lo);
             }
           });
-          const merged = Array.from(map.values()).sort((a, b) => b.id - a.id);
+          const merged = Array.from(map.values())
+            .filter((o) => !(o.id <= 3 && (o.customer_name === "Jasmin T. Cavan" || !o.customer_name)))
+            .sort((a, b) => b.id - a.id);
 
           setOrders(merged);
           saveStoredOrders(merged);

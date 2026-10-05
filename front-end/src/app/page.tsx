@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 export default function AuthPage() {
   const router = useRouter();
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const [mode, setMode] = useState<"login" | "register" | "forgot">("login");
 
   // Login form state
   const [username, setUsername] = useState("");
@@ -20,6 +20,12 @@ export default function AuthPage() {
   const [regAddress, setRegAddress] = useState("");
   const [regPassword, setRegPassword] = useState("");
   const [showRegPassword, setShowRegPassword] = useState(false);
+
+  // Forgot password form state
+  const [forgotUsername, setForgotUsername] = useState("");
+  const [forgotNewPassword, setForgotNewPassword] = useState("");
+  const [forgotConfirmPassword, setForgotConfirmPassword] = useState("");
+  const [showForgotNewPassword, setShowForgotNewPassword] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -101,6 +107,27 @@ export default function AuthPage() {
     }
   };
 
+  // Helper to calculate password strength
+  const getPasswordStrength = (pass: string) => {
+    let score = 0;
+    if (!pass) return { score: 0, label: "Very Weak", color: "bg-stone-200", textColor: "text-stone-400" };
+    const hasLength = pass.length >= 8;
+    const hasUpper = /[A-Z]/.test(pass);
+    const hasLower = /[a-z]/.test(pass);
+    const hasDigit = /[0-9]/.test(pass);
+    const hasSpecial = /[^A-Za-z0-9]/.test(pass);
+
+    if (hasLength) score++;
+    if (hasUpper) score++;
+    if (hasLower) score++;
+    if (hasDigit) score++;
+    if (hasSpecial) score++;
+
+    if (score <= 2) return { score, label: "Weak", color: "bg-rose-500", textColor: "text-rose-600" };
+    if (score <= 4) return { score, label: "Medium", color: "bg-amber-500", textColor: "text-amber-600" };
+    return { score, label: "Strong", color: "bg-emerald-500", textColor: "text-emerald-600" };
+  };
+
   // Handle Register submission
   const handleRegisterSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -114,6 +141,22 @@ export default function AuthPage() {
         message: "Please fill in required registration details.",
       });
       return;
+    }
+
+    if (mode === "register") {
+      const hasLength = targetPassword.length >= 8;
+      const hasUpper = /[A-Z]/.test(targetPassword);
+      const hasLower = /[a-z]/.test(targetPassword);
+      const hasDigit = /[0-9]/.test(targetPassword);
+      const hasSpecial = /[^A-Za-z0-9]/.test(targetPassword);
+
+      if (!hasLength || !hasUpper || !hasLower || !hasDigit || !hasSpecial) {
+        setToast({
+          type: "error",
+          message: "Password must be at least 8 characters with uppercase, lowercase, number & special symbol.",
+        });
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -169,6 +212,85 @@ export default function AuthPage() {
       setRegPassword(password);
     }
     setMode("register");
+  };
+
+  // Handle Forgot Password submission
+  const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!forgotUsername.trim() || !forgotNewPassword.trim() || !forgotConfirmPassword.trim()) {
+      setToast({
+        type: "error",
+        message: "Please fill in all required fields.",
+      });
+      return;
+    }
+
+    if (forgotNewPassword !== forgotConfirmPassword) {
+      setToast({
+        type: "error",
+        message: "Passwords do not match.",
+      });
+      return;
+    }
+
+    const hasLength = forgotNewPassword.length >= 8;
+    const hasUpper = /[A-Z]/.test(forgotNewPassword);
+    const hasLower = /[a-z]/.test(forgotNewPassword);
+    const hasDigit = /[0-9]/.test(forgotNewPassword);
+    const hasSpecial = /[^A-Za-z0-9]/.test(forgotNewPassword);
+
+    if (!hasLength || !hasUpper || !hasLower || !hasDigit || !hasSpecial) {
+      setToast({
+        type: "error",
+        message: "Password must be at least 8 characters with uppercase, lowercase, number & special symbol.",
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+    setToast(null);
+
+    try {
+      const res = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          Username: forgotUsername,
+          NewPassword: forgotNewPassword,
+          username: forgotUsername,
+          newPassword: forgotNewPassword,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setToast({
+          type: "success",
+          message: data?.message || "Password reset successfully!",
+        });
+        setTimeout(() => {
+          setMode("login");
+          setForgotUsername("");
+          setForgotNewPassword("");
+          setForgotConfirmPassword("");
+        }, 1500);
+      } else {
+        const errorData = await res.json().catch(() => ({}));
+        setToast({
+          type: "error",
+          message: errorData?.message || "Password reset failed.",
+        });
+      }
+    } catch (err) {
+      console.error("Forgot password API error:", err);
+      setToast({
+        type: "error",
+        message: "Password reset failed.",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -232,15 +354,21 @@ export default function AuthPage() {
           {/* Mode Header */}
           <div className="text-center mb-8">
             <div className="w-12 h-12 rounded-2xl bg-orange-100 border border-orange-200 flex items-center justify-center mx-auto mb-4 text-orange-600 text-xl shadow-inner">
-              {mode === "login" ? "🔒" : "📝"}
+              {mode === "login" ? "🔒" : mode === "register" ? "📝" : "🔑"}
             </div>
             <h1 className="text-2xl font-black tracking-tight text-stone-900 mb-1">
-              {mode === "login" ? "Sign In to WholesomeTreats" : "Create an Account"}
+              {mode === "login"
+                ? "Sign In to WholesomeTreats"
+                : mode === "register"
+                ? "Create an Account"
+                : "Reset Your Password"}
             </h1>
             <p className="text-xs text-stone-500 font-medium">
               {mode === "login"
                 ? "Enter your credentials to access your account"
-                : "Fill in the details below to register"}
+                : mode === "register"
+                ? "Fill in the details below to register"
+                : "Enter your username and choose a new password"}
             </p>
           </div>
 
@@ -280,12 +408,16 @@ export default function AuthPage() {
                   >
                     Password
                   </label>
-                  <a
-                    href="#forgot-password"
-                    className="text-xs text-orange-600 hover:text-orange-700 font-bold transition-colors"
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForgotUsername(username);
+                      setMode("forgot");
+                    }}
+                    className="text-xs text-orange-600 hover:text-orange-700 font-bold transition-colors cursor-pointer"
                   >
                     Forgot Password?
-                  </a>
+                  </button>
                 </div>
                 <div className="relative">
                   <input
@@ -374,7 +506,7 @@ export default function AuthPage() {
                 </button>
               </p>
             </form>
-          ) : (
+          ) : mode === "register" ? (
             /* REGISTER FORM VIEW */
             <form onSubmit={handleRegisterSubmit} className="space-y-4">
               <div className="space-y-1.5 text-left">
@@ -443,7 +575,7 @@ export default function AuthPage() {
                     required
                     value={regPassword}
                     onChange={(e) => setRegPassword(e.target.value)}
-                    placeholder="Min 6 characters"
+                    placeholder="Min 8 characters (Strong Password)"
                     className="w-full pl-4 pr-10 py-2.5 rounded-xl bg-orange-50/40 border border-orange-200 text-stone-900 placeholder-stone-400 text-sm focus:outline-none focus:border-orange-500 focus:bg-white font-medium"
                   />
                   <button
@@ -454,6 +586,42 @@ export default function AuthPage() {
                     {showRegPassword ? "👁️‍🗨️" : "👁️"}
                   </button>
                 </div>
+
+                {/* Password Strength Meter & Live Checklist */}
+                {regPassword.length > 0 && (
+                  <div className="space-y-1.5 pt-1">
+                    <div className="flex items-center justify-between text-[11px] font-bold">
+                      <span className="text-stone-500">Password Strength:</span>
+                      <span className={getPasswordStrength(regPassword).textColor}>
+                        {getPasswordStrength(regPassword).label}
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full bg-stone-100 rounded-full overflow-hidden flex gap-1">
+                      <div className={`h-full transition-all duration-300 ${getPasswordStrength(regPassword).score >= 1 ? getPasswordStrength(regPassword).color : 'bg-transparent'}`} style={{ width: '20%' }} />
+                      <div className={`h-full transition-all duration-300 ${getPasswordStrength(regPassword).score >= 2 ? getPasswordStrength(regPassword).color : 'bg-transparent'}`} style={{ width: '20%' }} />
+                      <div className={`h-full transition-all duration-300 ${getPasswordStrength(regPassword).score >= 3 ? getPasswordStrength(regPassword).color : 'bg-transparent'}`} style={{ width: '20%' }} />
+                      <div className={`h-full transition-all duration-300 ${getPasswordStrength(regPassword).score >= 4 ? getPasswordStrength(regPassword).color : 'bg-transparent'}`} style={{ width: '20%' }} />
+                      <div className={`h-full transition-all duration-300 ${getPasswordStrength(regPassword).score >= 5 ? getPasswordStrength(regPassword).color : 'bg-transparent'}`} style={{ width: '20%' }} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] text-stone-500 font-medium pt-1">
+                      <span className={regPassword.length >= 8 ? "text-emerald-600 font-bold" : "text-stone-400"}>
+                        {regPassword.length >= 8 ? "✓" : "○"} 8+ Characters
+                      </span>
+                      <span className={/[A-Z]/.test(regPassword) ? "text-emerald-600 font-bold" : "text-stone-400"}>
+                        {/[A-Z]/.test(regPassword) ? "✓" : "○"} Uppercase (A-Z)
+                      </span>
+                      <span className={/[a-z]/.test(regPassword) ? "text-emerald-600 font-bold" : "text-stone-400"}>
+                        {/[a-z]/.test(regPassword) ? "✓" : "○"} Lowercase (a-z)
+                      </span>
+                      <span className={/[0-9]/.test(regPassword) ? "text-emerald-600 font-bold" : "text-stone-400"}>
+                        {/[0-9]/.test(regPassword) ? "✓" : "○"} Number (0-9)
+                      </span>
+                      <span className={/[^A-Za-z0-9]/.test(regPassword) ? "text-emerald-600 font-bold" : "text-stone-400"}>
+                        {/[^A-Za-z0-9]/.test(regPassword) ? "✓" : "○"} Special (!@#$)
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <button
@@ -467,6 +635,116 @@ export default function AuthPage() {
 
               <p className="text-center text-xs text-stone-600 font-medium mt-4">
                 Already have an account?{" "}
+                <button
+                  type="button"
+                  onClick={() => setMode("login")}
+                  className="text-orange-600 hover:text-orange-700 font-bold underline cursor-pointer"
+                >
+                  Log in here
+                </button>
+              </p>
+            </form>
+          ) : (
+            /* FORGOT PASSWORD FORM VIEW */
+            <form onSubmit={handleForgotPasswordSubmit} className="space-y-4">
+              <div className="space-y-1.5 text-left">
+                <label className="block text-xs font-bold text-stone-700">
+                  Username *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={forgotUsername}
+                  onChange={(e) => setForgotUsername(e.target.value)}
+                  placeholder="Enter your registered username"
+                  className="w-full pl-4 pr-4 py-2.5 rounded-xl bg-orange-50/40 border border-orange-200 text-stone-900 placeholder-stone-400 text-sm focus:outline-none focus:border-orange-500 focus:bg-white font-medium"
+                />
+              </div>
+
+              <div className="space-y-1.5 text-left">
+                <label className="block text-xs font-bold text-stone-700">
+                  New Password *
+                </label>
+                <div className="relative">
+                  <input
+                    type={showForgotNewPassword ? "text" : "password"}
+                    required
+                    value={forgotNewPassword}
+                    onChange={(e) => setForgotNewPassword(e.target.value)}
+                    placeholder="Enter new strong password"
+                    className="w-full pl-4 pr-10 py-2.5 rounded-xl bg-orange-50/40 border border-orange-200 text-stone-900 placeholder-stone-400 text-sm focus:outline-none focus:border-orange-500 focus:bg-white font-medium"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowForgotNewPassword(!showForgotNewPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-orange-600 p-1"
+                  >
+                    {showForgotNewPassword ? "👁️‍🗨️" : "👁️"}
+                  </button>
+                </div>
+
+                {/* Password Strength Meter & Live Checklist */}
+                {forgotNewPassword.length > 0 && (
+                  <div className="space-y-1.5 pt-1">
+                    <div className="flex items-center justify-between text-[11px] font-bold">
+                      <span className="text-stone-500">Password Strength:</span>
+                      <span className={getPasswordStrength(forgotNewPassword).textColor}>
+                        {getPasswordStrength(forgotNewPassword).label}
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full bg-stone-100 rounded-full overflow-hidden flex gap-1">
+                      <div className={`h-full transition-all duration-300 ${getPasswordStrength(forgotNewPassword).score >= 1 ? getPasswordStrength(forgotNewPassword).color : 'bg-transparent'}`} style={{ width: '20%' }} />
+                      <div className={`h-full transition-all duration-300 ${getPasswordStrength(forgotNewPassword).score >= 2 ? getPasswordStrength(forgotNewPassword).color : 'bg-transparent'}`} style={{ width: '20%' }} />
+                      <div className={`h-full transition-all duration-300 ${getPasswordStrength(forgotNewPassword).score >= 3 ? getPasswordStrength(forgotNewPassword).color : 'bg-transparent'}`} style={{ width: '20%' }} />
+                      <div className={`h-full transition-all duration-300 ${getPasswordStrength(forgotNewPassword).score >= 4 ? getPasswordStrength(forgotNewPassword).color : 'bg-transparent'}`} style={{ width: '20%' }} />
+                      <div className={`h-full transition-all duration-300 ${getPasswordStrength(forgotNewPassword).score >= 5 ? getPasswordStrength(forgotNewPassword).color : 'bg-transparent'}`} style={{ width: '20%' }} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] text-stone-500 font-medium pt-1">
+                      <span className={forgotNewPassword.length >= 8 ? "text-emerald-600 font-bold" : "text-stone-400"}>
+                        {forgotNewPassword.length >= 8 ? "✓" : "○"} 8+ Characters
+                      </span>
+                      <span className={/[A-Z]/.test(forgotNewPassword) ? "text-emerald-600 font-bold" : "text-stone-400"}>
+                        {/[A-Z]/.test(forgotNewPassword) ? "✓" : "○"} Uppercase (A-Z)
+                      </span>
+                      <span className={/[a-z]/.test(forgotNewPassword) ? "text-emerald-600 font-bold" : "text-stone-400"}>
+                        {/[a-z]/.test(forgotNewPassword) ? "✓" : "○"} Lowercase (a-z)
+                      </span>
+                      <span className={/[0-9]/.test(forgotNewPassword) ? "text-emerald-600 font-bold" : "text-stone-400"}>
+                        {/[0-9]/.test(forgotNewPassword) ? "✓" : "○"} Number (0-9)
+                      </span>
+                      <span className={/[^A-Za-z0-9]/.test(forgotNewPassword) ? "text-emerald-600 font-bold" : "text-stone-400"}>
+                        {/[^A-Za-z0-9]/.test(forgotNewPassword) ? "✓" : "○"} Special (!@#$)
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-1.5 text-left">
+                <label className="block text-xs font-bold text-stone-700">
+                  Confirm New Password *
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={forgotConfirmPassword}
+                  onChange={(e) => setForgotConfirmPassword(e.target.value)}
+                  placeholder="Re-enter new password"
+                  className="w-full pl-4 pr-4 py-2.5 rounded-xl bg-orange-50/40 border border-orange-200 text-stone-900 placeholder-stone-400 text-sm focus:outline-none focus:border-orange-500 focus:bg-white font-medium"
+                />
+              </div>
+
+              <button
+                id="BtnForgotSubmit"
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-black text-sm transition-all duration-200 shadow-lg shadow-orange-600/30 flex items-center justify-center gap-2 disabled:opacity-60 mt-4 cursor-pointer"
+              >
+                {isSubmitting ? "Resetting Password..." : "Reset Password"}
+              </button>
+
+              <p className="text-center text-xs text-stone-600 font-medium mt-4">
+                Remembered your password?{" "}
                 <button
                   type="button"
                   onClick={() => setMode("login")}

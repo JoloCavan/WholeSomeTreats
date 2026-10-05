@@ -61,27 +61,29 @@ namespace API.Main
                     }
                 }
 
-                // 3. Seed default accounts & clean up missing profile fields
+                // 3. Seed default accounts safely without overwriting user passwords
+                string defaultHashedPassword = API.Security.PasswordHasher.HashPassword("123456");
+
                 cmd.CommandText = @"
                     INSERT INTO users (username, full_name, phone_number, address, password_hash, role)
-                    VALUES ('WholeSome', 'Jasmin T. Cavan', '09949516731', 'Upper Pacheco Olongapo City', '123456', 'Admin')
-                    ON CONFLICT (username) DO UPDATE SET role = 'Admin', full_name = 'Jasmin T. Cavan', password_hash = '123456';
+                    VALUES ('WholeSome', 'Jasmin T. Cavan', '09949516731', 'Upper Pacheco Olongapo City', @defaultHash, 'Admin')
+                    ON CONFLICT (username) DO UPDATE SET role = 'Admin';
 
                     INSERT INTO users (username, full_name, phone_number, address, password_hash, role)
-                    VALUES ('Jeicho', 'Jeiricho Lumbag', '09123456755', 'Olongapo City', '123456', 'customer')
-                    ON CONFLICT (username) DO UPDATE SET password_hash = '123456';
+                    VALUES ('Jeicho', 'Jeiricho Lumbag', '09123456755', 'Olongapo City', @defaultHash, 'customer')
+                    ON CONFLICT (username) DO NOTHING;
 
                     INSERT INTO users (username, full_name, phone_number, address, password_hash, role)
-                    VALUES ('Jolo', 'Jolo', '09123456789', 'Upper Pacheco Olongapo City', '123456', 'customer')
-                    ON CONFLICT (username) DO UPDATE SET password_hash = '123456';
+                    VALUES ('Jolo', 'Jolo', '09123456789', 'Upper Pacheco Olongapo City', @defaultHash, 'customer')
+                    ON CONFLICT (username) DO NOTHING;
 
-                    -- Update any empty/null profile fields for users like Jolo
+                    -- Update any empty/null profile fields for users
                     UPDATE users SET 
                         full_name = CASE WHEN full_name IS NULL OR TRIM(full_name) = '' THEN username ELSE full_name END,
                         phone_number = CASE WHEN phone_number IS NULL OR TRIM(phone_number) = '' THEN '09123456789' ELSE phone_number END,
                         address = CASE WHEN address IS NULL OR TRIM(address) = '' THEN 'Olongapo City' ELSE address END;
 
-                    -- Safely re-sequence user IDs so they are clean and consecutive (1, 2, 3, 4...)
+                    -- Safely re-sequence user IDs so they are clean and consecutive
                     WITH renumbered AS (
                         SELECT id, ROW_NUMBER() OVER (ORDER BY id ASC) AS new_id
                         FROM users
@@ -93,6 +95,11 @@ namespace API.Main
 
                     SELECT setval(pg_get_serial_sequence('users', 'id'), (SELECT COALESCE(MAX(id), 1) FROM users));
                 ";
+                cmd.Parameters.Clear();
+                var p = cmd.CreateParameter();
+                p.ParameterName = "defaultHash";
+                p.Value = defaultHashedPassword;
+                cmd.Parameters.Add(p);
                 await cmd.ExecuteNonQueryAsync();
 
                 // 4. Products table
@@ -173,6 +180,13 @@ namespace API.Main
                     UPDATE products SET image_url = '/images/banana_bread.jpg' WHERE id = 3 OR LOWER(name) LIKE '%banana%';
                     UPDATE products SET image_url = '/images/burnt_basque_cheesecake.jpg' WHERE id = 4 OR LOWER(name) LIKE '%burnt%';
                     UPDATE products SET image_url = '/images/newyork_cheesecake.jpg' WHERE id = 5 OR LOWER(name) LIKE '%newyork%' OR LOWER(name) LIKE '%new york%';
+                ";
+                await cmd.ExecuteNonQueryAsync();
+
+                // Purge legacy sample seed orders (ID 1, 2, 3) if present
+                cmd.CommandText = @"
+                    DELETE FROM order_items WHERE order_id IN (1, 2, 3);
+                    DELETE FROM orders WHERE id IN (1, 2, 3);
                 ";
                 await cmd.ExecuteNonQueryAsync();
 

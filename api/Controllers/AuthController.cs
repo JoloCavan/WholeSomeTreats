@@ -45,9 +45,24 @@ namespace API.Controllers
             });
         }
 
+        private static bool IsStrongPassword(string password)
+        {
+            if (string.IsNullOrWhiteSpace(password) || password.Length < 8) return false;
+            bool hasUpper = password.Any(char.IsUpper);
+            bool hasLower = password.Any(char.IsLower);
+            bool hasDigit = password.Any(char.IsDigit);
+            bool hasSpecial = password.Any(ch => !char.IsLetterOrDigit(ch));
+            return hasUpper && hasLower && hasDigit && hasSpecial;
+        }
+
         [HttpPost("register")]
         public async Task<IActionResult> Register([FromBody] RegisterRequest request)
         {
+            if (string.IsNullOrWhiteSpace(request.Password) || !IsStrongPassword(request.Password))
+            {
+                return BadRequest(new { message = "Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character." });
+            }
+
             var existingUser = await _userRepository.GetUserByUsernameAsync(request.Username);
             if (existingUser != null) return BadRequest(new { message = "Username already exists." });
 
@@ -90,6 +105,31 @@ namespace API.Controllers
                 },
                 message = "Login successful."
             });
+        }
+
+        [HttpPost("forgot-password")]
+        public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.Username))
+            {
+                return BadRequest(new { message = "Username is required." });
+            }
+
+            var user = await _userRepository.GetUserByUsernameAsync(request.Username);
+            if (user == null)
+            {
+                return NotFound(new { message = "User with specified username not found." });
+            }
+
+            if (string.IsNullOrWhiteSpace(request.NewPassword) || !IsStrongPassword(request.NewPassword))
+            {
+                return BadRequest(new { message = "Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character." });
+            }
+
+            string newHash = PasswordHasher.HashPassword(request.NewPassword);
+            await _userRepository.UpdatePasswordAsync(user.Id, newHash);
+
+            return Ok(new { message = "Password reset successfully. You can now log in with your new password." });
         }
 
         [HttpPut("change-password")]

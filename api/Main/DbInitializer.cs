@@ -176,30 +176,6 @@ namespace API.Main
                 ";
                 await cmd.ExecuteNonQueryAsync();
 
-                // Seed initial sample orders if orders table is empty
-                cmd.CommandText = "SELECT COUNT(*) FROM orders;";
-                long orderCount = Convert.ToInt64(await cmd.ExecuteScalarAsync());
-                if (orderCount == 0)
-                {
-                    cmd.CommandText = @"
-                        DELETE FROM order_items WHERE order_id NOT IN (SELECT id FROM orders);
-
-                        INSERT INTO orders (id, user_id, total_amount, payment_method, status, created_at) VALUES
-                        (1, 1, 220.00, 'COD', 'Pending', NOW() - INTERVAL '2 hours'),
-                        (2, 1, 180.00, 'COD', 'Processing', NOW() - INTERVAL '1 day'),
-                        (3, 1, 145.00, 'COD', 'Completed', NOW() - INTERVAL '2 days')
-                        ON CONFLICT (id) DO NOTHING;
-
-                        INSERT INTO order_items (order_id, product_id, variation_id, quantity, price_at_purchase) VALUES
-                        (1, 5, NULL, 1, 220.00),
-                        (2, 4, NULL, 1, 180.00),
-                        (3, 1, NULL, 1, 45.00),
-                        (3, 2, NULL, 1, 100.00);
-                    ";
-                    await cmd.ExecuteNonQueryAsync();
-                    Console.WriteLine("🌱 [DbInitializer] Seeded sample orders.");
-                }
-
                 // Seed initial announcements if announcements table is empty
                 cmd.CommandText = "SELECT COUNT(*) FROM announcements;";
                 long annCount = Convert.ToInt64(await cmd.ExecuteScalarAsync());

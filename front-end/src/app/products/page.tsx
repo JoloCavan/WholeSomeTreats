@@ -330,7 +330,7 @@ export default function ProductsPage() {
     }
   };
 
-  const handleConfirmPlaceOrder = async () => {
+  const handleConfirmAddToCart = async () => {
     if (!selectedProductForOrder) return;
     setIsSubmittingOrder(true);
 
@@ -348,20 +348,10 @@ export default function ProductsPage() {
 
     const userStr = localStorage.getItem("user");
     let currentUserId = 2;
-    let currentCustomerName = "Customer";
     if (userStr) {
       try {
         const u = JSON.parse(userStr);
-        currentCustomerName = u.full_name || u.username || "Customer";
-        if (u.id) {
-          currentUserId = u.id;
-        } else if (u.username?.toLowerCase() === "wholesome") {
-          currentUserId = 1;
-        } else if (u.username?.toLowerCase() === "jeicho") {
-          currentUserId = 2;
-        } else {
-          currentUserId = 3;
-        }
+        if (u.id) currentUserId = u.id;
       } catch (e) {}
     }
 
@@ -369,17 +359,11 @@ export default function ProductsPage() {
       productId: selectedProductForOrder.id,
       variationId: orderVariationId,
       quantity: orderQuantity,
-      price: currentPrice,
-      paymentMethod: "COD",
-      customerAddress: orderAddress,
-      deliveryDate: orderDeliveryDate,
       userId: currentUserId,
-      customerName: currentCustomerName,
     };
 
-    let newOrderId = Date.now();
     try {
-      const res = await fetch("/api/orders/direct", {
+      await fetch("/api/cart/add", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -387,55 +371,49 @@ export default function ProductsPage() {
         },
         body: JSON.stringify(payload),
       });
-
-      if (res.ok) {
-        const data = await res.json().catch(() => ({}));
-        if (data?.orderId) newOrderId = data.orderId;
-      }
     } catch (err) {
-      console.log("POST /api/orders/direct notice:", err);
+      console.log("POST /api/cart/add notice:", err);
     }
 
-    // Save to local orders
-    let storedOrders = [];
+    // Save to local cart storage wt_cart
+    let storedCart = [];
     try {
-      const raw = localStorage.getItem("wt_orders");
-      if (raw) storedOrders = JSON.parse(raw);
+      const raw = localStorage.getItem("wt_cart");
+      if (raw) storedCart = JSON.parse(raw);
     } catch (e) {}
 
-    const newOrder = {
-      id: newOrderId,
+    const newCartItem = {
+      id: Date.now(),
       user_id: currentUserId,
-      customer_name: currentCustomerName,
-      customer_address: orderAddress || "Olongapo City",
-      delivery_date: orderDeliveryDate,
-      total_amount: currentPrice * orderQuantity,
-      payment_method: "COD",
-      status: "Processing",
-      created_at: new Date().toISOString(),
-      items: [
-        {
-          id: Date.now(),
-          order_id: newOrderId,
-          product_id: selectedProductForOrder.id,
-          product_name: selectedProductForOrder.name,
-          flavor_name: selectedFlavorName,
-          variation_id: orderVariationId,
-          unit_type: selectedProductForOrder.unit_type,
-          quantity: orderQuantity,
-          price_at_purchase: currentPrice,
-        },
-      ],
+      product_id: selectedProductForOrder.id,
+      variation_id: orderVariationId,
+      quantity: orderQuantity,
+      product_name: selectedProductForOrder.name,
+      flavor_name: selectedFlavorName,
+      unit_type: selectedProductForOrder.unit_type,
+      image_url: selectedProductForOrder.image_url,
+      price: currentPrice,
     };
 
-    const updatedOrders = [newOrder, ...storedOrders];
+    // Check if item exists in local cart, if so update quantity
+    const existingIdx = storedCart.findIndex(
+      (c: any) => c.product_id === newCartItem.product_id && c.variation_id === newCartItem.variation_id
+    );
+    if (existingIdx >= 0) {
+      storedCart[existingIdx].quantity += orderQuantity;
+    } else {
+      storedCart.unshift(newCartItem);
+    }
+
     try {
-      localStorage.setItem("wt_orders", JSON.stringify(updatedOrders));
+      localStorage.setItem("wt_cart", JSON.stringify(storedCart));
+      localStorage.setItem("wt_active_tab", "cart");
     } catch (e) {}
 
     setIsSubmittingOrder(false);
     setSelectedProductForOrder(null);
-    showToast("success", `🎉 Order for "${selectedProductForOrder.name}" placed successfully! Check your dashboard My Orders.`);
+    showToast("success", `🛒 "${selectedProductForOrder.name}" added to cart!`);
+    router.push("/dashboard");
   };
 
   // 3. POST /api/products/admin/add & 4. PUT /api/products/admin/update/{id}
@@ -702,12 +680,14 @@ export default function ProductsPage() {
                     <span>🔍 View Variations</span>
                   </button>
 
-                  <button
-                    onClick={() => handleOpenOrderModal(p)}
-                    className="w-full py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-orange-600/20 active:scale-95"
-                  >
-                    <span>🛒 Order Now</span>
-                  </button>
+                  {!isAdmin && (
+                    <button
+                      onClick={() => handleOpenOrderModal(p)}
+                      className="w-full py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-orange-600/20 active:scale-95"
+                    >
+                      <span>🛒 Add to Cart</span>
+                    </button>
+                  )}
 
                   {isAdmin && (
                     <div className="flex items-center gap-2">
@@ -1010,7 +990,7 @@ export default function ProductsPage() {
             <div className="flex items-center justify-between border-b border-stone-100 pb-4 mb-4">
               <div className="flex items-center gap-2">
                 <span className="text-xl">🛒</span>
-                <h3 className="text-base font-black text-stone-900">Place Quick Order</h3>
+                <h3 className="text-base font-black text-stone-900">Add to Cart</h3>
               </div>
               <button
                 onClick={() => setSelectedProductForOrder(null)}
@@ -1088,50 +1068,6 @@ export default function ProductsPage() {
                         </button>
                       </div>
                     </div>
-
-                    {/* DELIVERY ADDRESS */}
-                    <div className="space-y-1.5">
-                      <label className="block text-stone-700 font-bold">Delivery Address:</label>
-                      <input
-                        type="text"
-                        value={orderAddress}
-                        onChange={(e) => setOrderAddress(e.target.value)}
-                        placeholder="e.g. 123 Main St, Olongapo City"
-                        className="w-full px-3.5 py-2.5 rounded-xl border border-orange-200 text-stone-900 font-medium focus:outline-none focus:border-orange-500 shadow-sm"
-                      />
-                    </div>
-
-                    {/* PREFERRED DELIVERY DATE */}
-                    <div className="space-y-1.5">
-                      <label className="block text-stone-700 font-bold flex items-center justify-between">
-                        <span>📅 Preferred Delivery Date:</span>
-                        <span className="text-[10px] text-orange-600 font-normal">Choose delivery date</span>
-                      </label>
-                      <input
-                        type="date"
-                        value={orderDeliveryDate}
-                        min={new Date().toISOString().split("T")[0]}
-                        onChange={(e) => setOrderDeliveryDate(e.target.value)}
-                        className="w-full px-3.5 py-2.5 rounded-xl border border-orange-200 bg-white text-stone-900 font-medium focus:outline-none focus:border-orange-500 shadow-sm cursor-pointer"
-                      />
-                    </div>
-
-                    {/* PAYMENT METHOD (COD ONLY) */}
-                    <div className="space-y-1.5">
-                      <label className="block text-stone-700 font-bold">Payment Method:</label>
-                      <div className="w-full px-3.5 py-2.5 rounded-xl border border-orange-200 bg-orange-50/50 text-stone-900 font-bold flex items-center justify-between shadow-sm">
-                        <span>💵 Cash on Delivery (COD)</span>
-                        <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-extrabold uppercase">Only Accepted</span>
-                      </div>
-                    </div>
-
-                    {/* TOTAL AMOUNT CALCULATION */}
-                    <div className="pt-3 border-t border-stone-100 flex items-center justify-between">
-                      <span className="text-stone-600 font-bold">Total Price:</span>
-                      <span className="text-lg font-black text-orange-600 font-mono">
-                        ₱{(itemPrice * orderQuantity).toFixed(2)}
-                      </span>
-                    </div>
                   </div>
                 </>
               );
@@ -1145,19 +1081,19 @@ export default function ProductsPage() {
                 Cancel
               </button>
               <button
-                onClick={handleConfirmPlaceOrder}
+                onClick={handleConfirmAddToCart}
                 disabled={isSubmittingOrder}
                 className="flex-1 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold shadow-md shadow-orange-600/30 cursor-pointer transition text-xs flex items-center justify-center gap-1.5"
               >
                 {isSubmittingOrder ? (
                   <>
                     <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
-                    <span>Placing Order...</span>
+                    <span>Adding to Cart...</span>
                   </>
                 ) : (
                   <>
                     <span>🛒</span>
-                    <span>Confirm Order</span>
+                    <span>Add to Cart</span>
                   </>
                 )}
               </button>

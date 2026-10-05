@@ -12,5 +12,7 @@ namespace API.DTOs
         [Required]
         [Range(1, 100)]
         public int Quantity { get; set; } = 1;
+
+        public int? UserId { get; set; }
     }
 }

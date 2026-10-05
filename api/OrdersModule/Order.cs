@@ -34,5 +34,35 @@ namespace API.OrdersModule
 
         [JsonPropertyName("delivery_date")]
         public string DeliveryDate { get; set; } = string.Empty;
+
+        [JsonPropertyName("items")]
+        public List<OrderItemDetail> Items { get; set; } = new List<OrderItemDetail>();
+    }
+
+    public class OrderItemDetail
+    {
+        [JsonPropertyName("id")]
+        public int Id { get; set; }
+
+        [JsonPropertyName("order_id")]
+        public int OrderId { get; set; }
+
+        [JsonPropertyName("product_id")]
+        public int ProductId { get; set; }
+
+        [JsonPropertyName("product_name")]
+        public string ProductName { get; set; } = string.Empty;
+
+        [JsonPropertyName("flavor_name")]
+        public string? FlavorName { get; set; }
+
+        [JsonPropertyName("unit_type")]
+        public string UnitType { get; set; } = "pc";
+
+        [JsonPropertyName("quantity")]
+        public int Quantity { get; set; }
+
+        [JsonPropertyName("price_at_purchase")]
+        public decimal PriceAtPurchase { get; set; }
     }
 }

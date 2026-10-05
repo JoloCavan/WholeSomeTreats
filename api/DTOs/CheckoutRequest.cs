@@ -1,9 +1,14 @@
-using System.ComponentModel.DataAnnotations;
+using System.Collections.Generic;
+using API.OrdersModule;
 
 namespace API.DTOs
 {
     public class CheckoutRequest
     {
-        // No fields needed right now since it's strictly COD and the backend knows the user ID
+        public int? UserId { get; set; }
+        public string? CustomerName { get; set; }
+        public string? CustomerAddress { get; set; }
+        public string? DeliveryDate { get; set; }
+        public List<CartItemSummary>? Items { get; set; }
     }
 }

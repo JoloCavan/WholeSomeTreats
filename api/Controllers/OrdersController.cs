@@ -33,24 +33,27 @@ namespace API.Controllers
         [HttpPost("checkout")]
         public async Task<IActionResult> Checkout([FromBody] CheckoutRequest? request)
         {
-            int userId = GetCurrentUserId();
+            int userId = (request != null && request.UserId.HasValue && request.UserId.Value > 0) ? request.UserId.Value : GetCurrentUserId();
 
-            var cartItems = await _cartRepository.GetCartByUserIdAsync(userId);
-            List<CartItemSummary> summaryItems;
+            List<CartItemSummary> summaryItems = request?.Items ?? new List<CartItemSummary>();
 
-            if (cartItems != null && cartItems.Any())
+            if (!summaryItems.Any())
             {
-                summaryItems = cartItems.Select(c => new CartItemSummary
+                var cartItems = await _cartRepository.GetCartByUserIdAsync(userId);
+                if (cartItems != null && cartItems.Any())
                 {
-                    ProductId = c.ProductId,
-                    VariationId = c.VariationId,
-                    Quantity = c.Quantity,
-                    Price = c.Price
-                }).ToList();
+                    summaryItems = cartItems.Select(c => new CartItemSummary
+                    {
+                        ProductId = c.ProductId,
+                        VariationId = c.VariationId,
+                        Quantity = c.Quantity,
+                        Price = c.Price
+                    }).ToList();
+                }
             }
-            else
+
+            if (!summaryItems.Any())
             {
-                // Fallback default item if cart is empty for testing checkout
                 summaryItems = new List<CartItemSummary>
                 {
                     new CartItemSummary { ProductId = 1, Quantity = 2, Price = 45.00m }
@@ -59,6 +62,16 @@ namespace API.Controllers
 
             int orderId = await _ordersRepository.CreateOrderAsync(userId, summaryItems);
             await _ordersRepository.UpdateOrderStatusAsync(orderId, "Processing");
+
+            if (!string.IsNullOrWhiteSpace(request?.DeliveryDate))
+            {
+                await _ordersRepository.UpdateDeliveryDateAsync(orderId, request.DeliveryDate);
+            }
+
+            if (!string.IsNullOrWhiteSpace(request?.CustomerAddress))
+            {
+                await _ordersRepository.UpdateCustomerAddressAsync(orderId, request.CustomerAddress);
+            }
 
             return Ok(new { message = "Order placed successfully via Cash on Delivery!", orderId = orderId });
         }

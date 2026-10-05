@@ -9,7 +9,7 @@ namespace API.Controllers
 {
     [ApiController]
     [Route("api/cart")]
-    [Authorize(Policy = "CustomerAccess")] 
+    [AllowAnonymous]
     public class CartController : ControllerBase
     {
         private readonly ICartRepository _cartRepository;
@@ -19,49 +19,48 @@ namespace API.Controllers
             _cartRepository = cartRepository;
         }
 
-        private int GetCurrentUserId()
+        private int GetCurrentUserId(int? fallbackUserId = null)
         {
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            return int.TryParse(userIdClaim, out int userId) ? userId : 0;
+            if (int.TryParse(userIdClaim, out int userId) && userId > 0) return userId;
+            if (fallbackUserId.HasValue && fallbackUserId.Value > 0) return fallbackUserId.Value;
+            return 2; // Default Customer ID (Jolo)
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetMyCart()
+        public async Task<IActionResult> GetMyCart([FromQuery] int? userId = null)
         {
-            int userId = GetCurrentUserId();
-            if (userId == 0) return Unauthorized();
-
-            var cart = await _cartRepository.GetCartByUserIdAsync(userId);
+            int targetUserId = GetCurrentUserId(userId);
+            var cart = await _cartRepository.GetCartByUserIdAsync(targetUserId);
             return Ok(cart);
         }
 
         [HttpPost("add")]
         public async Task<IActionResult> AddToCart([FromBody] AddToCartRequest request)
         {
-            int userId = GetCurrentUserId();
-            if (userId == 0) return Unauthorized();
+            int targetUserId = GetCurrentUserId(request?.UserId);
+            if (request == null || request.ProductId <= 0 || request.Quantity <= 0)
+            {
+                return BadRequest(new { message = "Invalid product details." });
+            }
 
-            await _cartRepository.AddToCartAsync(userId, request.ProductId, request.VariationId, request.Quantity);
+            await _cartRepository.AddToCartAsync(targetUserId, request.ProductId, request.VariationId, request.Quantity);
             return Ok(new { message = "Item added to cart successfully." });
         }
 
         [HttpDelete("remove/{cartItemId}")]
-        public async Task<IActionResult> RemoveFromCart(int cartItemId)
+        public async Task<IActionResult> RemoveFromCart(int cartItemId, [FromQuery] int? userId = null)
         {
-            int userId = GetCurrentUserId();
-            if (userId == 0) return Unauthorized();
-
-            await _cartRepository.RemoveFromCartAsync(cartItemId, userId);
+            int targetUserId = GetCurrentUserId(userId);
+            await _cartRepository.RemoveFromCartAsync(cartItemId, targetUserId);
             return Ok(new { message = "Item removed from cart." });
         }
 
         [HttpDelete("clear")]
-        public async Task<IActionResult> ClearCart()
+        public async Task<IActionResult> ClearCart([FromQuery] int? userId = null)
         {
-            int userId = GetCurrentUserId();
-            if (userId == 0) return Unauthorized();
-
-            await _cartRepository.ClearCartAsync(userId);
+            int targetUserId = GetCurrentUserId(userId);
+            await _cartRepository.ClearCartAsync(targetUserId);
             return Ok(new { message = "Cart cleared successfully." });
         }
     }

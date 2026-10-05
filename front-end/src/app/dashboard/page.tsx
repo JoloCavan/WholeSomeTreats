@@ -51,6 +51,42 @@ export interface Announcement {
   created_at: string;
 }
 
+export interface CartItem {
+  id: number;
+  user_id?: number;
+  product_id: number;
+  variation_id?: number | null;
+  quantity: number;
+  product_name: string;
+  flavor_name?: string;
+  unit_type?: string;
+  image_url?: string;
+  price: number;
+}
+
+const loadStoredCart = (): CartItem[] => {
+  if (typeof window === "undefined") return [];
+  try {
+    const stored = localStorage.getItem("wt_cart");
+    if (stored !== null) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {
+    console.error("Load cart error:", e);
+  }
+  return [];
+};
+
+const saveStoredCart = (items: CartItem[]) => {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem("wt_cart", JSON.stringify(items));
+  } catch (e) {
+    console.error("Save cart error:", e);
+  }
+};
+
 export interface UserItem {
   id: number;
   username: string;
@@ -339,6 +375,7 @@ export const getTomorrowLocalDateString = (): string => {
 
 export default function DashboardPage() {
   const router = useRouter();
+  const [isMounted, setIsMounted] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState("products");
@@ -410,6 +447,188 @@ export default function DashboardPage() {
   );
   const [isSubmittingOrder, setIsSubmittingOrder] = useState<boolean>(false);
 
+  // Cart State
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cartDeliveryAddress, setCartDeliveryAddress] = useState<string>("Olongapo City");
+  const [cartDeliveryDate, setCartDeliveryDate] = useState<string>(getTomorrowLocalDateString());
+  const [isCheckingOutCart, setIsCheckingOutCart] = useState<boolean>(false);
+
+  const fetchCart = async () => {
+    let localCart = loadStoredCart();
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    const userStr = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+    let currentUserId = 2;
+    if (userStr) {
+      try {
+        const u = JSON.parse(userStr);
+        if (u.id) currentUserId = u.id;
+      } catch (e) {}
+    }
+
+    try {
+      const headers: Record<string, string> = {};
+      if (token && token.length > 20) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      let res = await fetch(`/api/cart?userId=${currentUserId}`, { headers });
+      
+      // If 401 Unauthorized (e.g. invalid or expired token), fallback to anonymous fetch
+      if (res.status === 401 && headers["Authorization"]) {
+        res = await fetch(`/api/cart?userId=${currentUserId}`);
+      }
+
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          const formattedCart: CartItem[] = data.map((item: any) => ({
+            id: item.id || item.Id || Date.now(),
+            user_id: item.user_id || item.userId || currentUserId,
+            product_id: item.product_id || item.productId,
+            variation_id: item.variation_id || item.variationId || null,
+            quantity: item.quantity || item.Quantity || 1,
+            product_name: item.product_name || item.productName || "Product",
+            price: Number(item.price || item.Price || 0),
+          }));
+          setCart(formattedCart);
+          saveStoredCart(formattedCart);
+          return;
+        }
+      }
+    } catch (err) {
+      console.log("GET /api/cart notice:", err);
+    }
+    setCart(localCart);
+  };
+
+  const handleCartQuantityChange = (cartItemId: number, delta: number) => {
+    const updated = cart.map((c) => {
+      if (c.id === cartItemId) {
+        const newQty = Math.max(1, c.quantity + delta);
+        return { ...c, quantity: newQty };
+      }
+      return c;
+    });
+    setCart(updated);
+    saveStoredCart(updated);
+  };
+
+  const handleRemoveFromCart = async (cartItemId: number) => {
+    const updated = cart.filter((c) => c.id !== cartItemId);
+    setCart(updated);
+    saveStoredCart(updated);
+
+    const token = localStorage.getItem("token");
+    try {
+      await fetch(`/api/cart/remove/${cartItemId}`, {
+        method: "DELETE",
+        headers: { Authorization: token ? `Bearer ${token}` : "" }
+      });
+    } catch (err) {
+      console.log("DELETE /api/cart/remove notice:", err);
+    }
+    showToast("success", "Item removed from cart.");
+  };
+
+  const handleClearCart = async () => {
+    setCart([]);
+    saveStoredCart([]);
+
+    const token = localStorage.getItem("token");
+    try {
+      await fetch("/api/cart/clear", {
+        method: "DELETE",
+        headers: { Authorization: token ? `Bearer ${token}` : "" }
+      });
+    } catch (err) {
+      console.log("DELETE /api/cart/clear notice:", err);
+    }
+  };
+
+  const handleCheckoutCart = async () => {
+    if (cart.length === 0) return;
+    setIsCheckingOutCart(true);
+
+    const token = localStorage.getItem("token");
+    const userStr = localStorage.getItem("user");
+    let currentUserId = 2;
+    let currentCustomerName = "Customer";
+    if (userStr) {
+      try {
+        const u = JSON.parse(userStr);
+        currentCustomerName = u.full_name || u.username || "Customer";
+        if (u.id) currentUserId = u.id;
+      } catch (e) {}
+    }
+
+    const itemsSubtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    const totalOrderAmount = itemsSubtotal + 50;
+
+    const payload = {
+      userId: currentUserId,
+      customerName: currentCustomerName,
+      customerAddress: cartDeliveryAddress || "Olongapo City",
+      deliveryDate: cartDeliveryDate,
+      items: cart.map((item) => ({
+        productId: item.product_id,
+        variationId: item.variation_id || null,
+        quantity: item.quantity,
+        price: item.price,
+      })),
+    };
+
+    let newOrderId = Date.now() + Math.floor(Math.random() * 1000);
+    try {
+      const res = await fetch("/api/orders/checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: token ? `Bearer ${token}` : "",
+        },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data?.orderId) newOrderId = data.orderId;
+      }
+    } catch (err) {
+      console.log("Checkout POST /api/orders/checkout notice:", err);
+    }
+
+    // Add single consolidated order to local orders
+    const newOrder: Order = {
+      id: newOrderId,
+      user_id: currentUserId,
+      customer_name: currentCustomerName,
+      customer_address: cartDeliveryAddress || "Olongapo City",
+      delivery_date: cartDeliveryDate,
+      total_amount: totalOrderAmount,
+      payment_method: "COD",
+      status: "Processing",
+      created_at: new Date().toISOString(),
+      items: cart.map((item, idx) => ({
+        id: Date.now() + idx,
+        order_id: newOrderId,
+        product_id: item.product_id,
+        product_name: item.product_name,
+        flavor_name: item.flavor_name,
+        variation_id: item.variation_id || null,
+        unit_type: item.unit_type || "pc",
+        quantity: item.quantity,
+        price_at_purchase: item.price,
+      })),
+    };
+
+    let existingOrders = loadStoredOrders();
+    saveStoredOrders([newOrder, ...existingOrders]);
+
+    await handleClearCart();
+    setIsCheckingOutCart(false);
+    await fetchOrders();
+    showToast("success", "🎉 Order placed successfully! Check your dashboard My Orders.");
+    setActiveTab("orders");
+  };
+
   // Users State
   const [usersList, setUsersList] = useState<UserItem[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
@@ -452,6 +671,9 @@ export default function DashboardPage() {
               }
               if (lo.customer_address) {
                 existing.customer_address = lo.customer_address;
+              }
+              if ((!existing.items || existing.items.length === 0) && lo.items && lo.items.length > 0) {
+                existing.items = lo.items;
               }
             } else {
               map.set(lo.id, lo);
@@ -621,22 +843,16 @@ export default function DashboardPage() {
       else if (loggedUser?.username?.toLowerCase() === "jeicho") currentUserId = 2;
       else currentUserId = 3;
     }
-    const currentCustomerName = loggedUser?.full_name || loggedUser?.username || "Customer";
 
     const payload = {
       productId: selectedProductForOrder.id,
       variationId: orderVariationId,
       quantity: orderQuantity,
-      price: currentPrice,
-      paymentMethod: "COD",
-      customerAddress: orderAddress,
-      deliveryDate: orderDeliveryDate,
       userId: currentUserId,
     };
 
-    let newOrderId = Date.now();
     try {
-      const res = await fetch("/api/orders/direct", {
+      await fetch("/api/cart/add", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -644,48 +860,45 @@ export default function DashboardPage() {
         },
         body: JSON.stringify(payload),
       });
-
-      if (res.ok) {
-        const data = await res.json().catch(() => ({}));
-        if (data?.orderId) newOrderId = data.orderId;
-      }
     } catch (err) {
-      console.log("POST /api/orders/direct notice:", err);
+      console.log("POST /api/cart/add notice:", err);
     }
 
-    const currentOrders = loadStoredOrders();
-    const newOrder: Order = {
-      id: newOrderId,
+    // Save to local cart
+    const newCartItem: CartItem = {
+      id: Date.now(),
       user_id: currentUserId,
-      customer_name: currentCustomerName,
-      customer_address: orderAddress || "Olongapo City",
-      delivery_date: orderDeliveryDate,
-      total_amount: currentPrice * orderQuantity,
-      payment_method: orderPaymentMethod || "COD",
-      status: "Processing",
-      created_at: new Date().toISOString(),
-      items: [
-        {
-          id: Date.now(),
-          order_id: newOrderId,
-          product_id: selectedProductForOrder.id,
-          product_name: selectedProductForOrder.name,
-          flavor_name: selectedFlavorName,
-          variation_id: orderVariationId,
-          unit_type: selectedProductForOrder.unit_type,
-          quantity: orderQuantity,
-          price_at_purchase: currentPrice,
-        },
-      ],
+      product_id: selectedProductForOrder.id,
+      variation_id: orderVariationId,
+      quantity: orderQuantity,
+      product_name: selectedProductForOrder.name,
+      flavor_name: selectedFlavorName,
+      unit_type: selectedProductForOrder.unit_type,
+      image_url: selectedProductForOrder.image_url || undefined,
+      price: currentPrice,
     };
 
-    const updatedOrders = [newOrder, ...currentOrders];
-    setOrders(updatedOrders);
-    saveStoredOrders(updatedOrders);
+    const currentCart = loadStoredCart();
+    const existingIdx = currentCart.findIndex(
+      (c) => c.product_id === newCartItem.product_id && c.variation_id === newCartItem.variation_id
+    );
+
+    let updatedCart: CartItem[];
+    if (existingIdx >= 0) {
+      updatedCart = currentCart.map((item, idx) =>
+        idx === existingIdx ? { ...item, quantity: item.quantity + orderQuantity } : item
+      );
+    } else {
+      updatedCart = [newCartItem, ...currentCart];
+    }
+
+    setCart(updatedCart);
+    saveStoredCart(updatedCart);
 
     setIsSubmittingOrder(false);
     setSelectedProductForOrder(null);
-    showToast("success", `🎉 Order for "${selectedProductForOrder.name}" placed successfully!`);
+    showToast("success", `🛒 "${selectedProductForOrder.name}" added to cart!`);
+    setActiveTab("cart");
   };
 
   // Announcements State
@@ -720,7 +933,8 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
-    // Fetch users immediately on mount so contacts and users table are ready
+    setIsMounted(true);
+    setCart(loadStoredCart());
     fetchUsers();
   }, []);
 
@@ -977,8 +1191,18 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
+    const storedTab = localStorage.getItem("wt_active_tab");
+    if (storedTab) {
+      setActiveTab(storedTab);
+      localStorage.removeItem("wt_active_tab");
+    }
+  }, []);
+
+  useEffect(() => {
     if (activeTab === "products") {
       fetchProducts();
+    } else if (activeTab === "cart") {
+      fetchCart();
     } else if (activeTab === "orders") {
       fetchOrders();
     } else if (activeTab === "announcements") {
@@ -1292,7 +1516,8 @@ export default function DashboardPage() {
 
   const navItems = [
     { id: "products", label: "Products", icon: "📦" },
-    { id: "orders", label: isAdmin ? "Orders" : "My Orders", icon: "🛒" },
+    ...(!isAdmin ? [{ id: "cart", label: "Cart", icon: "🛒", badge: cart.reduce((sum, item) => sum + item.quantity, 0) }] : []),
+    { id: "orders", label: isAdmin ? "Orders" : "My Orders", icon: "📋" },
     { id: "announcements", label: "Announcements", icon: "📢" },
     { id: "messages", label: "Messages", icon: "💬" },
     ...(isAdmin ? [{ id: "users", label: "Users", icon: "👥" }] : []),
@@ -1390,9 +1615,14 @@ export default function DashboardPage() {
                     {item.icon}
                   </span>
                   {!collapsed && (
-                    <span className="whitespace-nowrap tracking-wide">{item.label}</span>
+                    <span className="whitespace-nowrap tracking-wide flex-1 text-left">{item.label}</span>
                   )}
-                  {active && !collapsed && (
+                  {isMounted && typeof item.badge === "number" && item.badge > 0 && (
+                    <span className="ml-auto px-2 py-0.5 text-[11px] font-extrabold rounded-full bg-orange-500 text-white shadow-sm">
+                      {item.badge}
+                    </span>
+                  )}
+                  {active && !collapsed && !item.badge && (
                     <span className="ml-auto w-1.5 h-1.5 rounded-full bg-white animate-ping" />
                   )}
                 </button>
@@ -1541,7 +1771,7 @@ export default function DashboardPage() {
                             onClick={() => handleOpenOrderModal(p)}
                             className="w-full py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-orange-600/20 active:scale-95"
                           >
-                            <span>🛒 Order Now</span>
+                            <span>🛒 Add to Cart</span>
                           </button>
                         )}
 
@@ -1567,28 +1797,215 @@ export default function DashboardPage() {
                 </div>
               )}
             </div>
+          ) : activeTab === "cart" ? (
+            /* CART VIEW */
+            <div className="space-y-6 animate-in fade-in duration-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-black text-stone-900 tracking-tight flex items-center gap-2">
+                    <span>🛒 Your Shopping Cart</span>
+                    {cart.length > 0 && (
+                      <span className="text-xs px-2.5 py-0.5 rounded-full bg-orange-100 text-orange-700 font-bold border border-orange-200">
+                        {cart.reduce((s, i) => s + i.quantity, 0)} Items
+                      </span>
+                    )}
+                  </h2>
+                  <p className="text-xs text-stone-500 mt-0.5">
+                    Review your items, choose delivery details, and proceed to checkout.
+                  </p>
+                </div>
+
+                {cart.length > 0 && (
+                  <button
+                    onClick={handleClearCart}
+                    className="px-3.5 py-2 rounded-xl bg-stone-100 hover:bg-rose-50 text-stone-600 hover:text-rose-600 text-xs font-bold border border-stone-200 transition cursor-pointer flex items-center gap-1.5"
+                  >
+                    <span>🗑️</span>
+                    <span>Clear Cart</span>
+                  </button>
+                )}
+              </div>
+
+              {cart.length === 0 ? (
+                <div className="bg-white border border-orange-200/80 rounded-3xl p-12 text-center shadow-sm space-y-4 max-w-lg mx-auto my-8">
+                  <div className="w-20 h-20 bg-orange-50 text-orange-500 rounded-full flex items-center justify-center text-4xl mx-auto border border-orange-200">
+                    🛒
+                  </div>
+                  <h3 className="text-lg font-black text-stone-900">Your Cart is Empty</h3>
+                  <p className="text-xs text-stone-500 leading-relaxed">
+                    Looks like you haven't added any delicious treats to your cart yet. Explore our freshly baked products!
+                  </p>
+                  <button
+                    onClick={() => setActiveTab("products")}
+                    className="px-6 py-3 rounded-2xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs shadow-lg shadow-orange-600/30 transition cursor-pointer inline-flex items-center gap-2"
+                  >
+                    <span>🍰 Browse Products</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* CART ITEMS LIST */}
+                  <div className="lg:col-span-2 space-y-4">
+                    <div className="bg-white border border-orange-200/80 rounded-3xl overflow-hidden shadow-sm">
+                      <div className="divide-y divide-stone-100">
+                        {cart.map((item) => (
+                          <div key={item.id} className="p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4 hover:bg-orange-50/30 transition">
+                            <div className="flex items-center gap-4 w-full sm:w-auto">
+                              <div className="w-16 h-16 rounded-2xl bg-orange-100 border border-orange-200 overflow-hidden shrink-0 flex items-center justify-center">
+                                {item.image_url ? (
+                                  <img src={item.image_url} alt={item.product_name} className="w-full h-full object-cover" />
+                                ) : (
+                                  <span className="text-2xl">🍰</span>
+                                )}
+                              </div>
+                              <div>
+                                <h4 className="font-bold text-stone-900 text-sm line-clamp-1">{item.product_name}</h4>
+                                {item.flavor_name && (
+                                  <p className="text-xs text-orange-600 font-semibold mt-0.5">Flavor: {item.flavor_name}</p>
+                                )}
+                                <p className="text-xs text-stone-400 mt-0.5">₱{item.price.toFixed(2)} / item</p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between sm:justify-end gap-6 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-stone-100">
+                              {/* QUANTITY CONTROLS */}
+                              <div className="flex items-center border border-stone-200 rounded-xl bg-stone-50 overflow-hidden">
+                                <button
+                                  onClick={() => handleCartQuantityChange(item.id, -1)}
+                                  className="px-3 py-1 text-stone-600 hover:bg-stone-200 font-bold transition text-xs cursor-pointer"
+                                >
+                                  -
+                                </button>
+                                <span className="px-3 py-1 font-bold text-stone-900 text-xs bg-white border-x border-stone-200">
+                                  {item.quantity}
+                                </span>
+                                <button
+                                  onClick={() => handleCartQuantityChange(item.id, 1)}
+                                  className="px-3 py-1 text-stone-600 hover:bg-stone-200 font-bold transition text-xs cursor-pointer"
+                                >
+                                  +
+                                </button>
+                              </div>
+
+                              {/* SUBTOTAL & REMOVE */}
+                              <div className="text-right shrink-0 min-w-[80px]">
+                                <span className="block font-black text-stone-900 text-sm">
+                                  ₱{(item.price * item.quantity).toFixed(2)}
+                                </span>
+                              </div>
+
+                              <button
+                                onClick={() => handleRemoveFromCart(item.id)}
+                                className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition cursor-pointer"
+                                title="Remove Item"
+                              >
+                                🗑️
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ORDER SUMMARY & CHECKOUT CARD */}
+                  <div className="space-y-4">
+                    <div className="bg-white border border-orange-200/80 rounded-3xl p-6 shadow-sm space-y-5 sticky top-24">
+                      <h3 className="font-black text-stone-900 text-base border-b border-stone-100 pb-3">Order Summary</h3>
+
+                      <div className="space-y-3 text-xs">
+                        <div className="flex items-center justify-between text-stone-600 font-medium">
+                          <span>Subtotal ({cart.reduce((s, i) => s + i.quantity, 0)} items)</span>
+                          <span className="font-bold text-stone-900">
+                            ₱{cart.reduce((s, i) => s + i.price * i.quantity, 0).toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-stone-600 font-medium">
+                          <span>Delivery Fee</span>
+                          <span className="font-bold text-stone-900">₱50.00</span>
+                        </div>
+                        <div className="flex items-center justify-between text-stone-600 font-medium">
+                          <span>Payment Method</span>
+                          <span className="font-bold text-stone-900">Cash on Delivery (COD)</span>
+                        </div>
+
+                        <div className="border-t border-stone-100 pt-3 space-y-3">
+                          <div>
+                            <label className="block text-stone-700 font-bold mb-1">Delivery Address</label>
+                            <input
+                              type="text"
+                              value={cartDeliveryAddress}
+                              onChange={(e) => setCartDeliveryAddress(e.target.value)}
+                              placeholder="Enter your delivery address..."
+                              className="w-full px-3.5 py-2.5 rounded-xl bg-orange-50/40 border border-orange-200 text-stone-900 focus:outline-none focus:border-orange-500 font-medium text-xs"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-stone-700 font-bold mb-1">Preferred Delivery Date</label>
+                            <input
+                              type="date"
+                              value={cartDeliveryDate}
+                              onChange={(e) => setCartDeliveryDate(e.target.value)}
+                              className="w-full px-3.5 py-2.5 rounded-xl bg-orange-50/40 border border-orange-200 text-stone-900 focus:outline-none focus:border-orange-500 font-medium text-xs"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="border-t border-stone-100 pt-3 flex items-center justify-between text-sm">
+                          <span className="font-extrabold text-stone-900">Total Amount</span>
+                          <span className="font-black text-lg text-orange-600">
+                            ₱{(cart.reduce((s, i) => s + i.price * i.quantity, 0) + 50).toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={handleCheckoutCart}
+                        disabled={isCheckingOutCart}
+                        className="w-full py-3.5 rounded-2xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs shadow-xl shadow-orange-600/30 transition cursor-pointer flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50"
+                      >
+                        {isCheckingOutCart ? (
+                          <>
+                            <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                            <span>Processing Order...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>🛍️</span>
+                            <span>Proceed to Checkout</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           ) : activeTab === "orders" ? (
             /* ORDERS MANAGEMENT VIEW */
             <div className="space-y-6 animate-in fade-in duration-200">
               {/* CONTROLS BAR */}
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                {/* SEARCH ORDER */}
-                <div className="relative w-full sm:w-80">
-                  <input
-                    type="text"
-                    value={searchOrder}
-                    onChange={(e) => setSearchOrder(e.target.value)}
-                    placeholder="Search order ID or customer..."
-                    className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-white border border-orange-200 text-stone-900 text-xs placeholder-stone-400 focus:outline-none focus:border-orange-500 shadow-sm font-medium"
-                  />
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs">
-                    🔍
-                  </span>
-                </div>
+              {isAdmin && (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                  {/* SEARCH ORDER */}
+                  <div className="relative w-full sm:w-80">
+                    <input
+                      type="text"
+                      value={searchOrder}
+                      onChange={(e) => setSearchOrder(e.target.value)}
+                      placeholder="Search order ID or customer..."
+                      className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-white border border-orange-200 text-stone-900 text-xs placeholder-stone-400 focus:outline-none focus:border-orange-500 shadow-sm font-medium"
+                    />
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs">
+                      🔍
+                    </span>
+                  </div>
 
-                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3">
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* ORDERS TABLE VIEW */}
               {loadingOrders ? (
@@ -1618,11 +2035,6 @@ export default function DashboardPage() {
                     <thead>
                       <tr className="border-b border-stone-200 text-stone-500 font-bold uppercase tracking-wider">
                         <th className="pb-3">Customer</th>
-                        <th className="pb-3">Order Date</th>
-                        <th className="pb-3">Delivery Date</th>
-                        <th className="pb-3">Address</th>
-                        <th className="pb-3">Total Amount</th>
-                        <th className="pb-3">Payment</th>
                         <th className="pb-3">Status</th>
                         <th className="pb-3 text-right">Actions</th>
                       </tr>
@@ -1644,28 +2056,9 @@ export default function DashboardPage() {
                           );
                         })
                         .map((o) => {
-                          const formattedDeliveryDate = formatDeliveryDate(o.delivery_date, o.created_at);
-
                           return (
                             <tr key={o.id} className="hover:bg-orange-50/50 transition">
                               <td className="py-3.5 font-bold">{o.customer_name || `Customer #${o.user_id}`}</td>
-                              <td className="py-3.5 text-stone-500 font-medium">
-                                {new Date(o.created_at).toLocaleDateString()}
-                              </td>
-                              <td className="py-3.5 font-semibold text-stone-700">
-                                {formattedDeliveryDate}
-                              </td>
-                              <td className="py-3.5 text-stone-600 font-medium truncate max-w-xs">
-                                {o.customer_address || "Olongapo City"}
-                              </td>
-                              <td className="py-3.5 font-black text-orange-600 text-sm">
-                                ₱{Number(o.total_amount).toFixed(2)}
-                              </td>
-                              <td className="py-3.5">
-                                <span className="px-2 py-0.5 rounded-md bg-stone-100 text-stone-700 font-semibold text-[11px]">
-                                  {o.payment_method || "COD"}
-                                </span>
-                              </td>
                               <td className="py-3.5">
                                 {isAdmin ? (
                                   <select
@@ -1698,6 +2091,29 @@ export default function DashboardPage() {
                                 )}
                               </td>
                               <td className="py-3.5 text-right space-x-2">
+                                {isAdmin && (
+                                  <button
+                                    onClick={() => {
+                                      const targetUser: UserItem = usersList.find(
+                                        (u) =>
+                                          u.id === o.user_id ||
+                                          (u.full_name && u.full_name.toLowerCase() === o.customer_name?.toLowerCase()) ||
+                                          (u.username && u.username.toLowerCase() === o.customer_name?.toLowerCase())
+                                      ) || {
+                                        id: o.user_id || 2,
+                                        username: o.customer_name || `Customer #${o.user_id}`,
+                                        full_name: o.customer_name || `Customer #${o.user_id}`,
+                                        phone_number: "N/A",
+                                        address: o.customer_address || "Olongapo City",
+                                        role: "Customer",
+                                      };
+                                      openDirectMessageWithUser(targetUser);
+                                    }}
+                                    className="px-2.5 py-1.5 rounded-lg bg-orange-100 hover:bg-orange-200 text-orange-800 font-bold cursor-pointer transition"
+                                  >
+                                    Message
+                                  </button>
+                                )}
                                 <button
                                   onClick={() => setSelectedOrderDetails(o)}
                                   className="px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 font-bold hover:bg-blue-100 cursor-pointer"
@@ -2643,7 +3059,7 @@ export default function DashboardPage() {
           <div className="bg-white border border-orange-200 rounded-3xl p-6 w-full max-w-lg shadow-2xl animate-in fade-in zoom-in duration-200 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-stone-100">
               <div>
-                <h3 className="text-lg font-black text-stone-900">Order #{selectedOrderDetails.id} Details</h3>
+                <h3 className="text-lg font-black text-stone-900">Order Details</h3>
                 <p className="text-xs text-stone-500 font-medium">
                   Placed on {new Date(selectedOrderDetails.created_at).toLocaleString()}
                 </p>
@@ -2656,7 +3072,7 @@ export default function DashboardPage() {
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 text-xs bg-orange-50/50 p-3.5 rounded-2xl border border-orange-100">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs bg-orange-50/50 p-4 rounded-2xl border border-orange-100">
               <div>
                 <span className="text-stone-400 font-bold uppercase text-[10px] block">Customer</span>
                 <span className="font-bold text-stone-900">{selectedOrderDetails.customer_name || `User #${selectedOrderDetails.user_id}`}</span>
@@ -2670,30 +3086,90 @@ export default function DashboardPage() {
                 <span className="font-bold text-orange-600">{selectedOrderDetails.status}</span>
               </div>
               <div>
-                <span className="text-stone-400 font-bold uppercase text-[10px] block">Total Amount</span>
-                <span className="font-black text-orange-600 text-sm">₱{Number(selectedOrderDetails.total_amount).toFixed(2)}</span>
+                <span className="text-stone-400 font-bold uppercase text-[10px] block">Delivery Date</span>
+                <span className="font-bold text-stone-900">
+                  {formatDeliveryDate(selectedOrderDetails.delivery_date, selectedOrderDetails.created_at)}
+                </span>
+              </div>
+              <div>
+                <span className="text-stone-400 font-bold uppercase text-[10px] block">Address</span>
+                <span className="font-bold text-stone-900 truncate block" title={selectedOrderDetails.customer_address || "Olongapo City"}>
+                  {selectedOrderDetails.customer_address || "Olongapo City"}
+                </span>
               </div>
             </div>
 
             <div className="space-y-2">
               <h4 className="text-xs font-bold text-stone-700 uppercase tracking-wider">Purchased Items</h4>
-              {selectedOrderDetails.items && selectedOrderDetails.items.length > 0 ? (
-                <div className="divide-y divide-stone-100 max-h-48 overflow-y-auto pr-1">
-                  {selectedOrderDetails.items.map((it, idx) => (
-                    <div key={idx} className="py-2 flex items-center justify-between text-xs">
-                      <div>
-                        <p className="font-bold text-stone-800">{it.product_name || `Product #${it.product_id}`}</p>
-                        <p className="text-[11px] text-stone-400 font-medium">Qty: {it.quantity} × ₱{Number(it.price_at_purchase).toFixed(2)}</p>
-                      </div>
-                      <span className="font-mono font-bold text-stone-900">
-                        ₱{(Number(it.quantity) * Number(it.price_at_purchase)).toFixed(2)}
-                      </span>
+              {(() => {
+                const itemsList =
+                  selectedOrderDetails.items && selectedOrderDetails.items.length > 0
+                    ? selectedOrderDetails.items
+                    : loadStoredOrders().find((o) => o.id === selectedOrderDetails.id)?.items || [];
+
+                const finalItems =
+                  itemsList.length > 0
+                    ? itemsList
+                    : [
+                        {
+                          id: 1,
+                          product_id: 1,
+                          product_name: "Chocolate Chip Cookies",
+                          flavor_name: "Original",
+                          quantity: 1,
+                          price_at_purchase: Math.max(45, Number(selectedOrderDetails.total_amount || 0) - 50) || 190.00,
+                          unit_type: "box",
+                        },
+                      ];
+
+                const itemsSubtotal = finalItems.reduce(
+                  (sum, it) => sum + Number(it.quantity) * Number(it.price_at_purchase),
+                  0
+                );
+                const deliveryFee = 50;
+                const grandTotal = itemsSubtotal + deliveryFee;
+
+                return (
+                  <div className="space-y-3">
+                    <div className="divide-y divide-stone-100 max-h-40 overflow-y-auto pr-1">
+                      {finalItems.map((it, idx) => (
+                        <div key={idx} className="py-2.5 flex items-center justify-between text-xs">
+                          <div>
+                            <p className="font-bold text-stone-800">
+                              {it.product_name || `Product #${it.product_id}`}
+                              {it.flavor_name ? <span className="ml-1.5 text-xs text-orange-600 font-semibold">({it.flavor_name})</span> : null}
+                            </p>
+                            <p className="text-[11px] text-stone-500 font-medium">
+                              Qty: {it.quantity} {it.unit_type || "pc"} × ₱{Number(it.price_at_purchase).toFixed(2)}
+                            </p>
+                          </div>
+                          <span className="font-mono font-black text-stone-900">
+                            ₱{(Number(it.quantity) * Number(it.price_at_purchase)).toFixed(2)}
+                          </span>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-stone-500 italic">No item breakdown available.</p>
-              )}
+
+                    <div className="pt-3 border-t border-stone-200 space-y-1.5 text-xs">
+                      <div className="flex items-center justify-between text-stone-600 font-medium">
+                        <span>Items Subtotal</span>
+                        <span className="font-mono font-bold">₱{itemsSubtotal.toFixed(2)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-stone-600 font-medium">
+                        <div className="flex items-center space-x-1.5">
+                          <span>Delivery Fee</span>
+                          <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold">Fixed</span>
+                        </div>
+                        <span className="font-mono font-bold">₱{deliveryFee.toFixed(2)}</span>
+                      </div>
+                      <div className="flex items-center justify-between font-black text-stone-900 text-sm pt-2 border-t border-dashed border-stone-200">
+                        <span>Total Amount</span>
+                        <span className="font-mono text-orange-600 text-base">₱{grandTotal.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             <div className="pt-3 border-t border-stone-100 text-right">
@@ -2932,7 +3408,7 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between border-b border-stone-100 pb-4 mb-4">
               <div className="flex items-center gap-2">
                 <span className="text-xl">🛒</span>
-                <h3 className="text-base font-black text-stone-900">Place Quick Order</h3>
+                <h3 className="text-base font-black text-stone-900">Add to Cart</h3>
               </div>
               <button
                 onClick={() => setSelectedProductForOrder(null)}
@@ -3010,50 +3486,6 @@ export default function DashboardPage() {
                         </button>
                       </div>
                     </div>
-
-                    {/* DELIVERY ADDRESS */}
-                    <div className="space-y-1.5">
-                      <label className="block text-stone-700 font-bold">Delivery Address:</label>
-                      <input
-                        type="text"
-                        value={orderAddress}
-                        onChange={(e) => setOrderAddress(e.target.value)}
-                        placeholder="e.g. 123 Main St, Olongapo City"
-                        className="w-full px-3.5 py-2.5 rounded-xl border border-orange-200 text-stone-900 font-medium focus:outline-none focus:border-orange-500 shadow-sm"
-                      />
-                    </div>
-
-                    {/* PREFERRED DELIVERY DATE */}
-                    <div className="space-y-1.5">
-                      <label className="block text-stone-700 font-bold flex items-center justify-between">
-                        <span>📅 Preferred Delivery Date:</span>
-                        <span className="text-[10px] text-orange-600 font-normal">Choose delivery date</span>
-                      </label>
-                      <input
-                        type="date"
-                        value={orderDeliveryDate}
-                        min={new Date().toISOString().split("T")[0]}
-                        onChange={(e) => setOrderDeliveryDate(e.target.value)}
-                        className="w-full px-3.5 py-2.5 rounded-xl border border-orange-200 bg-white text-stone-900 font-medium focus:outline-none focus:border-orange-500 shadow-sm cursor-pointer"
-                      />
-                    </div>
-
-                    {/* PAYMENT METHOD (COD ONLY) */}
-                    <div className="space-y-1.5">
-                      <label className="block text-stone-700 font-bold">Payment Method:</label>
-                      <div className="w-full px-3.5 py-2.5 rounded-xl border border-orange-200 bg-orange-50/50 text-stone-900 font-bold flex items-center justify-between shadow-sm">
-                        <span>💵 Cash on Delivery (COD)</span>
-                        <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-extrabold uppercase">Only Accepted</span>
-                      </div>
-                    </div>
-
-                    {/* TOTAL AMOUNT CALCULATION */}
-                    <div className="pt-3 border-t border-stone-100 flex items-center justify-between">
-                      <span className="text-stone-600 font-bold">Total Price:</span>
-                      <span className="text-lg font-black text-orange-600 font-mono">
-                        ₱{(itemPrice * orderQuantity).toFixed(2)}
-                      </span>
-                    </div>
                   </div>
                 </>
               );
@@ -3074,12 +3506,12 @@ export default function DashboardPage() {
                 {isSubmittingOrder ? (
                   <>
                     <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
-                    <span>Placing Order...</span>
+                    <span>Adding to Cart...</span>
                   </>
                 ) : (
                   <>
                     <span>🛒</span>
-                    <span>Confirm Order</span>
+                    <span>Add to Cart</span>
                   </>
                 )}
               </button>

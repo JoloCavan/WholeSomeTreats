@@ -113,6 +113,48 @@ namespace API.OrdersModule
 
         // ... (Keep the rest of your methods like GetAllOrdersAsync, CancelOrderAsync exactly the same)
         
+        private async Task PopulateOrderItemsAsync(IEnumerable<Order> orders)
+        {
+            if (orders == null || !orders.Any()) return;
+
+            await using var connection = _db.GetConnection();
+            await connection.OpenAsync();
+
+            foreach (var order in orders)
+            {
+                var itemsSql = @"
+                    SELECT oi.id, oi.order_id, oi.product_id, oi.quantity, oi.price_at_purchase,
+                           p.name AS product_name, p.unit_type,
+                           pv.flavor_name
+                    FROM order_items oi
+                    LEFT JOIN products p ON oi.product_id = p.id
+                    LEFT JOIN product_variations pv ON oi.variation_id = pv.id
+                    WHERE oi.order_id = @orderId";
+
+                await using var cmd = connection.CreateCommand();
+                cmd.CommandText = itemsSql;
+                cmd.Parameters.Add(CreateParam(cmd, "orderId", order.Id));
+
+                await using var reader = await cmd.ExecuteReaderAsync();
+                var items = new List<OrderItemDetail>();
+                while (await reader.ReadAsync())
+                {
+                    items.Add(new OrderItemDetail
+                    {
+                        Id = reader.GetInt32(reader.GetOrdinal("id")),
+                        OrderId = reader.GetInt32(reader.GetOrdinal("order_id")),
+                        ProductId = reader.GetInt32(reader.GetOrdinal("product_id")),
+                        Quantity = reader.GetInt32(reader.GetOrdinal("quantity")),
+                        PriceAtPurchase = reader.GetDecimal(reader.GetOrdinal("price_at_purchase")),
+                        ProductName = GetStringOrEmpty(reader, "product_name"),
+                        UnitType = GetStringOrEmpty(reader, "unit_type"),
+                        FlavorName = GetStringOrEmpty(reader, "flavor_name")
+                    });
+                }
+                order.Items = items;
+            }
+        }
+
         public async Task<IEnumerable<Order>> GetAllOrdersAsync()
         {
             var sql = @"
@@ -122,7 +164,9 @@ namespace API.OrdersModule
                 FROM orders o
                 LEFT JOIN users u ON o.user_id = u.id
                 ORDER BY o.created_at DESC";
-            return await ExecuteReaderToListAsync(sql, MapReaderToOrder);
+            var orders = (await ExecuteReaderToListAsync(sql, MapReaderToOrder)).ToList();
+            await PopulateOrderItemsAsync(orders);
+            return orders;
         }
 
         public async Task<IEnumerable<Order>> GetOrdersByUserIdAsync(int userId)
@@ -135,7 +179,9 @@ namespace API.OrdersModule
                 LEFT JOIN users u ON o.user_id = u.id
                 WHERE o.user_id = @userId
                 ORDER BY o.created_at DESC";
-            return await ExecuteReaderToListAsync(sql, MapReaderToOrder, new[] { CreateParameter("userId", userId) });
+            var orders = (await ExecuteReaderToListAsync(sql, MapReaderToOrder, new[] { CreateParameter("userId", userId) })).ToList();
+            await PopulateOrderItemsAsync(orders);
+            return orders;
         }
 
         public async Task UpdateOrderStatusAsync(int orderId, string status)

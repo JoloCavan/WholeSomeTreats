@@ -166,10 +166,11 @@ export default function AuthPage() {
       }
 
       const phoneDigits = regPhoneNumber.trim();
-      if (!phoneDigits || !/^\d{11}$/.test(phoneDigits)) {
+      const isDummyRepetitive = phoneDigits === "09000000000" || phoneDigits === "09111111111" || phoneDigits === "09999999999" || phoneDigits === "09123456789";
+      if (!phoneDigits || !/^09\d{9}$/.test(phoneDigits) || isDummyRepetitive) {
         setToast({
           type: "error",
-          message: "Phone number is required and must contain exactly 11 numeric digits (e.g. 09123456789).",
+          message: "Please enter a valid 11-digit Philippine mobile number starting with 09 (e.g. 09171234567).",
         });
         return;
       }
@@ -208,7 +209,7 @@ export default function AuthPage() {
         const errorData = await res.json().catch(() => ({}));
         setToast({
           type: "error",
-          message: errorData?.message || "Registration failed",
+          message: errorData?.message || "This username already exists.",
         });
       }
     } catch (err) {

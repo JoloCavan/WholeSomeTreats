@@ -10,7 +10,7 @@ namespace API.DTOs
         public string FullName { get; set; } = string.Empty;
 
         [Required(ErrorMessage = "Phone number is required.")]
-        [RegularExpression(@"^\d{11}$", ErrorMessage = "Phone number must contain exactly 11 digits.")]
+        [RegularExpression(@"^09\d{9}$", ErrorMessage = "Please enter a valid Philippine mobile number starting with 09 (e.g. 09171234567).")]
         public string PhoneNumber { get; set; } = string.Empty;
 
         public string Address { get; set; } = string.Empty;

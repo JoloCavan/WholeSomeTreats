@@ -67,9 +67,11 @@ namespace API.Controllers
 
                 string username = request.Username.Trim();
 
-                if (string.IsNullOrWhiteSpace(request.PhoneNumber) || !System.Text.RegularExpressions.Regex.IsMatch(request.PhoneNumber.Trim(), @"^\d{11}$"))
+                string phone = request.PhoneNumber?.Trim() ?? string.Empty;
+                if (!System.Text.RegularExpressions.Regex.IsMatch(phone, @"^09\d{9}$") ||
+                    phone == "09000000000" || phone == "09111111111" || phone == "09999999999" || phone == "09123456789")
                 {
-                    return BadRequest(new { message = "Phone number is required and must contain exactly 11 numeric digits (e.g. 09123456789)." });
+                    return BadRequest(new { message = "Please enter a valid 11-digit Philippine mobile number starting with 09 (e.g. 09171234567)." });
                 }
 
                 if (string.IsNullOrWhiteSpace(request.Password) || !IsStrongPassword(request.Password))
@@ -78,7 +80,7 @@ namespace API.Controllers
                 }
 
                 var existingUser = await _userRepository.GetUserByUsernameAsync(username);
-                if (existingUser != null) return BadRequest(new { message = "Username already exists." });
+                if (existingUser != null) return BadRequest(new { message = "This username already exists." });
 
                 var newUser = new User
                 {

@@ -33,6 +33,17 @@ namespace API.Main
                         role VARCHAR(50) DEFAULT 'customer',
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
+
+                    CREATE TABLE IF NOT EXISTS messages (
+                        id SERIAL PRIMARY KEY,
+                        sender_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        sender_name VARCHAR(100) NOT NULL,
+                        receiver_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        receiver_name VARCHAR(100) NOT NULL,
+                        content TEXT DEFAULT '',
+                        image_url TEXT DEFAULT '',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
                 ";
                 await cmd.ExecuteNonQueryAsync();
 

@@ -1478,8 +1478,24 @@ export default function DashboardPage() {
   const [chatImageAttachment, setChatImageAttachment] = useState<string | null>(null);
   const chatFileInputRef = useRef<HTMLInputElement>(null);
 
+  const fetchLiveMessages = async () => {
+    try {
+      const res = await fetch("/api/messages");
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setMessagesList(data);
+        }
+      }
+    } catch (err) {
+      console.error("Error polling messages:", err);
+    }
+  };
+
   useEffect(() => {
-    setMessagesList(loadStoredMessages());
+    fetchLiveMessages();
+    const interval = setInterval(fetchLiveMessages, 2000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -1499,15 +1515,19 @@ export default function DashboardPage() {
     }
   };
 
-  const handleSendMessage = (e?: React.FormEvent) => {
+  const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!chatInputText.trim() && !chatImageAttachment) return;
 
-    const currentUserId = (user as any)?.id || (isAdmin ? 1 : 4);
-    const currentUserName = user?.username || (isAdmin ? "WholeSome" : "Jeicho");
+    const currentUserId = (user as any)?.id || 1;
+    const currentUserName = user?.username || (isAdmin ? "WholeSome" : "Customer");
 
-    let recipientId = 1;
-    let recipientName = "WholeSome";
+    const adminUser = usersList.find((u) => (u.role || "").toLowerCase() === "admin" || u.username.toLowerCase() === "wholesome") || usersList[0];
+    const defaultAdminId = adminUser ? adminUser.id : 1;
+    const defaultAdminName = adminUser ? (adminUser.full_name || adminUser.username) : "WholeSome";
+
+    let recipientId = defaultAdminId;
+    let recipientName = defaultAdminName;
 
     if (isAdmin) {
       if (!selectedChatUser) return;
@@ -1515,22 +1535,32 @@ export default function DashboardPage() {
       recipientName = selectedChatUser.full_name || selectedChatUser.username;
     }
 
-    const newMessage: ChatMessage = {
-      id: Date.now(),
+    const payload = {
       sender_id: currentUserId,
       sender_name: currentUserName,
       receiver_id: recipientId,
       receiver_name: recipientName,
       content: chatInputText.trim(),
-      ...(chatImageAttachment ? { image_url: chatImageAttachment } : {}),
-      created_at: new Date().toISOString(),
+      image_url: chatImageAttachment || null,
     };
 
-    const updated = [...messagesList, newMessage];
-    setMessagesList(updated);
-    saveStoredMessages(updated);
     setChatInputText("");
     setChatImageAttachment(null);
+
+    try {
+      const res = await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        const newMsg = await res.json();
+        setMessagesList((prev) => [...prev, newMsg]);
+        fetchLiveMessages();
+      }
+    } catch (err) {
+      console.error("Error sending message:", err);
+    }
   };
 
   const openDirectMessageWithUser = (u: UserItem) => {
@@ -2345,14 +2375,28 @@ export default function DashboardPage() {
                 {/* MESSAGES THREAD BUBBLES */}
                 <div className="flex-1 space-y-3 overflow-y-auto max-h-[380px] p-3 bg-stone-50/60 rounded-2xl border border-stone-100">
                   {(() => {
-                    const currentUserId = (user as any)?.id || (isAdmin ? 1 : 4);
-                    const activeChatRecipientId = isAdmin ? (selectedChatUser ? selectedChatUser.id : 4) : 1;
+                    const currentUserId = (user as any)?.id;
+                    const currentUsername = (user?.username || "").toLowerCase();
 
-                    const activeThread = messagesList.filter(
-                      (m) =>
-                        (m.sender_id === currentUserId && m.receiver_id === activeChatRecipientId) ||
-                        (m.sender_id === activeChatRecipientId && m.receiver_id === currentUserId)
-                    );
+                    const activeThread = messagesList.filter((m) => {
+                      if (isAdmin) {
+                        if (!selectedChatUser) return false;
+                        const targetId = selectedChatUser.id;
+                        const targetName = selectedChatUser.username.toLowerCase();
+                        return (
+                          m.sender_id === targetId ||
+                          m.receiver_id === targetId ||
+                          m.sender_name.toLowerCase() === targetName ||
+                          m.receiver_name.toLowerCase() === targetName
+                        );
+                      } else {
+                        return (
+                          m.sender_id === currentUserId ||
+                          m.receiver_id === currentUserId ||
+                          (currentUsername && (m.sender_name.toLowerCase() === currentUsername || m.receiver_name.toLowerCase() === currentUsername))
+                        );
+                      }
+                    });
 
                     if (activeThread.length === 0) {
                       return (
@@ -2363,7 +2407,10 @@ export default function DashboardPage() {
                     }
 
                     return activeThread.map((msg) => {
-                      const isMe = msg.sender_id === currentUserId || msg.sender_name.toLowerCase() === (user?.username || "").toLowerCase();
+                      const isMe =
+                        (currentUserId && msg.sender_id === currentUserId) ||
+                        (currentUsername && msg.sender_name.toLowerCase() === currentUsername);
+
                       return (
                         <div
                           key={msg.id}
@@ -2389,7 +2436,7 @@ export default function DashboardPage() {
                             )}
                           </div>
                           <span className="text-[9px] text-stone-400 mt-1 px-1 font-mono">
-                            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                           </span>
                         </div>
                       );

@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "concurrently \"next dev\" \"dotnet run --project ../api\"",
+    "dev:frontend": "next dev",
+    "dev:api": "dotnet run --project ../api",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

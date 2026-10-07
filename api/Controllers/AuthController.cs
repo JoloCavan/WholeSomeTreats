@@ -58,78 +58,121 @@ namespace API.Controllers
         [HttpPost("register")]
         public async Task<IActionResult> Register([FromBody] RegisterRequest request)
         {
-            if (string.IsNullOrWhiteSpace(request.Password) || !IsStrongPassword(request.Password))
+            try
             {
-                return BadRequest(new { message = "Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character." });
+                if (request == null || string.IsNullOrWhiteSpace(request.Username))
+                {
+                    return BadRequest(new { message = "Username is required." });
+                }
+
+                string username = request.Username.Trim();
+
+                if (string.IsNullOrWhiteSpace(request.PhoneNumber) || !System.Text.RegularExpressions.Regex.IsMatch(request.PhoneNumber.Trim(), @"^\d{11}$"))
+                {
+                    return BadRequest(new { message = "Phone number is required and must contain exactly 11 numeric digits (e.g. 09123456789)." });
+                }
+
+                if (string.IsNullOrWhiteSpace(request.Password) || !IsStrongPassword(request.Password))
+                {
+                    return BadRequest(new { message = "Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character." });
+                }
+
+                var existingUser = await _userRepository.GetUserByUsernameAsync(username);
+                if (existingUser != null) return BadRequest(new { message = "Username already exists." });
+
+                var newUser = new User
+                {
+                    Username = username,
+                    FullName = string.IsNullOrWhiteSpace(request.FullName) ? username : request.FullName.Trim(),
+                    PhoneNumber = request.PhoneNumber?.Trim() ?? string.Empty,
+                    Address = request.Address?.Trim() ?? string.Empty,
+                    PasswordHash = PasswordHasher.HashPassword(request.Password),
+                    Role = "customer"
+                };
+
+                await _userRepository.CreateUserAsync(newUser);
+                return Ok(new { message = "User registered successfully." });
             }
-
-            var existingUser = await _userRepository.GetUserByUsernameAsync(request.Username);
-            if (existingUser != null) return BadRequest(new { message = "Username already exists." });
-
-            var newUser = new User
+            catch (Exception ex)
             {
-                Username = request.Username,
-                FullName = string.IsNullOrWhiteSpace(request.FullName) ? request.Username : request.FullName,
-                PhoneNumber = request.PhoneNumber ?? string.Empty,
-                Address = request.Address ?? string.Empty,
-                PasswordHash = PasswordHasher.HashPassword(request.Password),
-                Role = "customer"
-            };
-
-            await _userRepository.CreateUserAsync(newUser);
-            return Ok(new { message = "User registered successfully." });
+                Console.WriteLine($"❌ [Register Error]: {ex.Message} \n{ex.StackTrace}");
+                return StatusCode(500, new { message = "An error occurred during registration. Please try again.", error = ex.Message });
+            }
         }
 
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginRequest request)
         {
-            var user = await _userRepository.GetUserByUsernameAsync(request.Username);
-            
-            if (user == null || !PasswordHasher.VerifyPassword(request.Password, user.PasswordHash))
-                return Unauthorized(new { message = "Invalid username or password." });
+            try
+            {
+                if (request == null || string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))
+                {
+                    return BadRequest(new { message = "Username and password are required." });
+                }
 
-            var token = _jwtService.GenerateToken(user);
-            
-            return Ok(new { 
-                token = token, 
-                roleId = user.RoleId,
-                role = user.Role,
-                user = new {
-                    id = user.Id,
-                    username = user.Username,
-                    full_name = user.FullName,
-                    phone_number = user.PhoneNumber,
-                    address = user.Address,
+                string username = request.Username.Trim();
+                var user = await _userRepository.GetUserByUsernameAsync(username);
+                
+                if (user == null || !PasswordHasher.VerifyPassword(request.Password, user.PasswordHash))
+                    return Unauthorized(new { message = "Invalid username or password." });
+
+                var token = _jwtService.GenerateToken(user);
+                
+                return Ok(new { 
+                    token = token, 
+                    roleId = user.RoleId,
                     role = user.Role,
-                    roleId = user.RoleId
-                },
-                message = "Login successful."
-            });
+                    user = new {
+                        id = user.Id,
+                        username = user.Username,
+                        full_name = user.FullName,
+                        phone_number = user.PhoneNumber,
+                        address = user.Address,
+                        role = user.Role,
+                        roleId = user.RoleId
+                    },
+                    message = "Login successful."
+                });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ [Login Error]: {ex.Message} \n{ex.StackTrace}");
+                return StatusCode(500, new { message = "An error occurred during login. Please try again.", error = ex.Message });
+            }
         }
 
         [HttpPost("forgot-password")]
         public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
         {
-            if (string.IsNullOrWhiteSpace(request.Username))
+            try
             {
-                return BadRequest(new { message = "Username is required." });
-            }
+                if (request == null || string.IsNullOrWhiteSpace(request.Username))
+                {
+                    return BadRequest(new { message = "Username is required." });
+                }
 
-            var user = await _userRepository.GetUserByUsernameAsync(request.Username);
-            if (user == null)
+                string username = request.Username.Trim();
+                var user = await _userRepository.GetUserByUsernameAsync(username);
+                if (user == null)
+                {
+                    return NotFound(new { message = "User with specified username not found." });
+                }
+
+                if (string.IsNullOrWhiteSpace(request.NewPassword) || !IsStrongPassword(request.NewPassword))
+                {
+                    return BadRequest(new { message = "Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character." });
+                }
+
+                string newHash = PasswordHasher.HashPassword(request.NewPassword);
+                await _userRepository.UpdatePasswordAsync(user.Id, newHash);
+
+                return Ok(new { message = "Password reset successfully. You can now log in with your new password." });
+            }
+            catch (Exception ex)
             {
-                return NotFound(new { message = "User with specified username not found." });
+                Console.WriteLine($"❌ [ForgotPassword Error]: {ex.Message} \n{ex.StackTrace}");
+                return StatusCode(500, new { message = "An error occurred while resetting password.", error = ex.Message });
             }
-
-            if (string.IsNullOrWhiteSpace(request.NewPassword) || !IsStrongPassword(request.NewPassword))
-            {
-                return BadRequest(new { message = "Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character." });
-            }
-
-            string newHash = PasswordHasher.HashPassword(request.NewPassword);
-            await _userRepository.UpdatePasswordAsync(user.Id, newHash);
-
-            return Ok(new { message = "Password reset successfully. You can now log in with your new password." });
         }
 
         [HttpPut("change-password")]

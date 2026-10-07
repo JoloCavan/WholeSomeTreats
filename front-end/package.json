@@ -7,7 +7,7 @@
     "dev:frontend": "next dev",
     "dev:api": "dotnet run --project ../api",
     "build": "next build",
-    "start": "next start",
+    "start": "concurrently \"next start\" \"dotnet run --project ../api\"",
     "lint": "eslint"
   },
   "dependencies": {

@@ -164,6 +164,15 @@ export default function AuthPage() {
         });
         return;
       }
+
+      const phoneDigits = regPhoneNumber.trim();
+      if (!phoneDigits || !/^\d{11}$/.test(phoneDigits)) {
+        setToast({
+          type: "error",
+          message: "Phone number is required and must contain exactly 11 numeric digits (e.g. 09123456789).",
+        });
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -176,12 +185,12 @@ export default function AuthPage() {
         body: JSON.stringify({
           Username: targetUsername,
           FullName: regFullName || targetUsername,
-          PhoneNumber: regPhoneNumber || "0000000000",
+          PhoneNumber: regPhoneNumber.trim(),
           Address: regAddress || "Default Address",
           Password: targetPassword,
           username: targetUsername,
           fullName: regFullName || targetUsername,
-          phoneNumber: regPhoneNumber || "0000000000",
+          phoneNumber: regPhoneNumber.trim(),
           address: regAddress || "Default Address",
           password: targetPassword,
         }),
@@ -546,13 +555,23 @@ export default function AuthPage() {
 
               <div className="grid grid-cols-2 gap-3 text-left">
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-stone-700">
-                    Phone Number
-                  </label>
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-stone-700">
+                      Phone Number *
+                    </label>
+                    <span className={`text-[10px] font-semibold ${regPhoneNumber.length === 11 ? "text-emerald-600" : "text-amber-600"}`}>
+                      {regPhoneNumber.length}/11
+                    </span>
+                  </div>
                   <input
                     type="text"
+                    required
+                    maxLength={11}
                     value={regPhoneNumber}
-                    onChange={(e) => setRegPhoneNumber(e.target.value)}
+                    onChange={(e) => {
+                      const cleanDigits = e.target.value.replace(/\D/g, "").slice(0, 11);
+                      setRegPhoneNumber(cleanDigits);
+                    }}
                     placeholder="e.g. 09123456789"
                     className="w-full pl-3 pr-3 py-2.5 rounded-xl bg-orange-50/40 border border-orange-200 text-stone-900 placeholder-stone-400 text-xs focus:outline-none focus:border-orange-500 focus:bg-white font-medium"
                   />

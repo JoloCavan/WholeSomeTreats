@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Hello World | Next.js + TypeScript",
-  description: "A modern Next.js and TypeScript application displaying Hello World",
+  title: "WholesomeTreats | Delight in Every Bite",
+  description: "WholesomeTreats - Delicious baked goods, cakes, and treats made with love.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

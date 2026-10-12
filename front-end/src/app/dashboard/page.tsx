@@ -470,6 +470,20 @@ export const formatSundayDateDisplay = (dateStr: string): string => {
   return dateStr;
 };
 
+export const formatPreferredTimeDisplay = (timeStr?: string): string => {
+  if (!timeStr) return "10:00 AM";
+  const clean = timeStr.trim();
+  if (/am|pm/i.test(clean)) return clean.toUpperCase();
+  const parts = clean.split(":");
+  let hours = parseInt(parts[0], 10);
+  const minutes = parts[1] ? parts[1].slice(0, 2) : "00";
+  if (isNaN(hours)) return clean;
+  const ampm = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12;
+  hours = hours ? hours : 12;
+  return `${hours}:${minutes.padStart(2, "0")} ${ampm}`;
+};
+
 export const getTomorrowLocalDateString = (): string => {
   return getNextSundayLocalDateString();
 };
@@ -621,17 +635,18 @@ export default function DashboardPage() {
 
   // Baking Production State & Filters
   const [bakingDateFilter, setBakingDateFilter] = useState<string>("All");
-  const [bakingStatusFilter, setBakingStatusFilter] = useState<string>("ToBake");
 
   // Aggregate Baking Quantities
   const bakingProductionData = useMemo(() => {
-    const targetOrders = orders.filter((o) => {
-      if (o.status === "Declined" || o.status === "Cancelled") return false;
-      if (bakingStatusFilter === "ApprovedOnly") {
-        if (o.status !== "Approved" && o.status !== "Processing") return false;
-      } else if (bakingStatusFilter === "ToBake") {
-        if (o.status !== "Pending" && o.status !== "Approved" && o.status !== "Processing") return false;
-      }
+    // Only exclude orders that don't need baking: Declined, Cancelled, Completed
+    const activeBakeOrders = orders.filter((o) => {
+      const status = (o.status || "").toLowerCase();
+      if (status === "declined" || status === "cancelled" || status === "completed") return false;
+      return true;
+    });
+
+    // Orders for timeline display (can be filtered by Sunday date batch)
+    const targetOrders = activeBakeOrders.filter((o) => {
       if (bakingDateFilter !== "All") {
         const orderDate = (o.delivery_date || "").trim().split(" ")[0];
         if (orderDate !== bakingDateFilter) return false;
@@ -652,9 +667,9 @@ export default function DashboardPage() {
     const cheesecakeTypes = { burntBasque: 0, newYork: 0 };
     const otherItems: Record<string, number> = {};
 
-    targetOrders.forEach((o) => {
+    activeBakeOrders.forEach((o) => {
       (o.items || []).forEach((it) => {
-        const qty = it.quantity || 1;
+        const qty = Number(it.quantity) || 1;
         const name = (it.product_name || "").toLowerCase();
         const pId = it.product_id;
         const flavor = it.flavor_name || "Original";
@@ -663,11 +678,11 @@ export default function DashboardPage() {
           bananaBreads += qty;
         } else if (pId === 1 || name.includes("cookie")) {
           cookies += qty;
-        } else if (pId === 2 || name.includes("crinkle")) {
+        } else if (pId === 2 || name.includes("crinkle") || name.includes("cringle")) {
           crinkles += qty;
-        } else if (pId === 4 || pId === 5 || name.includes("cheesecake")) {
+        } else if (pId === 4 || pId === 5 || name.includes("cheesecake") || name.includes("basque")) {
           cheesecakesTotal += qty;
-          if (pId === 4 || name.includes("burnt")) {
+          if (pId === 4 || name.includes("burnt") || name.includes("basque")) {
             cheesecakeTypes.burntBasque += qty;
           } else {
             cheesecakeTypes.newYork += qty;
@@ -680,7 +695,8 @@ export default function DashboardPage() {
       });
     });
 
-    const totalToBakeCount = bananaBreads + cookies + crinkles + cheesecakesTotal;
+    const otherItemsTotal = Object.values(otherItems).reduce((sum, v) => sum + v, 0);
+    const totalToBakeCount = bananaBreads + cookies + crinkles + cheesecakesTotal + otherItemsTotal;
 
     const groupedBySunday: Record<string, Order[]> = {};
     targetOrders.forEach((o) => {
@@ -701,10 +717,11 @@ export default function DashboardPage() {
       otherItems,
       totalToBakeCount,
       targetOrders,
+      activeBakeOrders,
       groupedBySunday,
       sortedSundays,
     };
-  }, [orders, bakingDateFilter, bakingStatusFilter]);
+  }, [orders, bakingDateFilter]);
 
   const fetchCart = async () => {
     let localCart = loadStoredCart();
@@ -1954,7 +1971,7 @@ export default function DashboardPage() {
 
   const navItems = [
     { id: "products", label: "Products", icon: "📦" },
-    ...(isAdmin ? [{ id: "baking", label: "Bake Production", icon: "👩‍🍳", badge: bakingProductionData.totalToBakeCount }] : []),
+    ...(isAdmin ? [{ id: "baking", label: "Items to Bake", icon: "👩‍🍳", badge: bakingProductionData.totalToBakeCount }] : []),
     ...(!isAdmin ? [{ id: "cart", label: "Cart", icon: "🛒", badge: cart.reduce((sum, item) => sum + item.quantity, 0) }] : []),
     { id: "orders", label: isAdmin ? "Orders" : "My Orders", icon: "📋" },
     { id: "announcements", label: "Announcements", icon: "📢" },
@@ -2243,25 +2260,17 @@ export default function DashboardPage() {
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-2 border-b border-orange-100">
                 <div>
                   <h2 className="text-xl sm:text-2xl font-black text-stone-900 tracking-tight flex items-center gap-2.5">
-                    <span>👩‍🍳 Kitchen Production & Delivery Schedule</span>
+                    <span>👩‍🍳 Items to Bake</span>
                     <span className="text-xs px-3 py-1 rounded-full bg-orange-100 text-orange-800 font-bold border border-orange-200">
                       {bakingProductionData.totalToBakeCount} Items to Bake
                     </span>
                   </h2>
                   <p className="text-xs text-stone-500 mt-1">
-                    Live production tally of banana breads, cookies, crinkles, and cheesecakes for Sunday deliveries.
+                    Live tally of banana breads, cookies, crinkles, and cheesecakes for Sunday deliveries.
                   </p>
                 </div>
 
                 <div className="flex items-center gap-2.5 flex-wrap self-end sm:self-auto">
-                  <button
-                    onClick={() => window.print()}
-                    className="px-3.5 py-2 rounded-xl bg-white hover:bg-orange-50 border border-orange-200 text-stone-700 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
-                    title="Print kitchen production bake sheet"
-                  >
-                    <span>🖨️</span>
-                    <span>Print Bake Sheet</span>
-                  </button>
                   <button
                     onClick={fetchOrders}
                     className="px-3.5 py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md shadow-orange-600/20"
@@ -2272,33 +2281,8 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* FILTER BAR */}
-              <div className="bg-white border border-orange-200/80 rounded-2xl p-4 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                {/* Status Filter */}
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[11px] font-bold text-stone-500 uppercase tracking-wider mr-1">
-                    Order Status:
-                  </span>
-                  {[
-                    { id: "ToBake", label: "🔥 To Bake (Pending + Approved)" },
-                    { id: "ApprovedOnly", label: "✅ Approved Only" },
-                    { id: "All", label: "📋 All Orders" },
-                  ].map((filter) => (
-                    <button
-                      key={filter.id}
-                      onClick={() => setBakingStatusFilter(filter.id)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${
-                        bakingStatusFilter === filter.id
-                          ? "bg-stone-900 text-white border-stone-900 shadow-xs"
-                          : "bg-stone-50 hover:bg-stone-100 text-stone-600 border-stone-200"
-                      }`}
-                    >
-                      {filter.label}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Sunday Date Filter */}
+              {/* FILTER BAR - SUNDAY BATCH */}
+              <div className="bg-white border border-orange-200/80 rounded-2xl p-4 shadow-xs flex items-center justify-between gap-4 flex-wrap">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-[11px] font-bold text-stone-500 uppercase tracking-wider mr-1">
                     Sunday Batch:
@@ -2339,9 +2323,6 @@ export default function DashboardPage() {
                       <span className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center text-xl font-bold shadow-xs">
                         🍌
                       </span>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-50 text-amber-800 border border-amber-200">
-                        Loaf Pans
-                      </span>
                     </div>
                     <h3 className="text-sm font-black text-stone-800 mt-3">Banana Breads</h3>
                     <p className="text-[11px] text-stone-500 font-medium">Choco Chip Nutty Loaves</p>
@@ -2363,9 +2344,6 @@ export default function DashboardPage() {
                     <div className="flex items-center justify-between">
                       <span className="w-10 h-10 rounded-2xl bg-orange-100 text-orange-800 flex items-center justify-center text-xl font-bold shadow-xs">
                         🍪
-                      </span>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-orange-50 text-orange-800 border border-orange-200">
-                        Batch Trays
                       </span>
                     </div>
                     <h3 className="text-sm font-black text-stone-800 mt-3">Cookies</h3>
@@ -2389,9 +2367,6 @@ export default function DashboardPage() {
                       <span className="w-10 h-10 rounded-2xl bg-stone-100 text-stone-800 flex items-center justify-center text-xl font-bold shadow-xs">
                         🍫
                       </span>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-stone-50 text-stone-800 border border-stone-200">
-                        Powdered Boxes
-                      </span>
                     </div>
                     <h3 className="text-sm font-black text-stone-800 mt-3">Crinkles</h3>
                     <p className="text-[11px] text-stone-500 font-medium">Fudgy Chewy Crinkles</p>
@@ -2413,9 +2388,6 @@ export default function DashboardPage() {
                     <div className="flex items-center justify-between">
                       <span className="w-10 h-10 rounded-2xl bg-yellow-100 text-yellow-800 flex items-center justify-center text-xl font-bold shadow-xs">
                         🧀
-                      </span>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-yellow-50 text-yellow-900 border border-yellow-200">
-                        Artisan Cakes
                       </span>
                     </div>
                     <h3 className="text-sm font-black text-stone-800 mt-3">Cheesecakes</h3>
@@ -2482,14 +2454,14 @@ export default function DashboardPage() {
 
                       dayOrders.forEach((o) => {
                         (o.items || []).forEach((it) => {
-                          const qty = it.quantity || 1;
+                          const qty = Number(it.quantity) || 1;
                           const name = (it.product_name || "").toLowerCase();
                           const pId = it.product_id;
 
                           if (pId === 3 || name.includes("banana")) dayBanana += qty;
                           else if (pId === 1 || name.includes("cookie")) dayCookies += qty;
-                          else if (pId === 2 || name.includes("crinkle")) dayCrinkles += qty;
-                          else if (pId === 4 || pId === 5 || name.includes("cheesecake")) {
+                          else if (pId === 2 || name.includes("crinkle") || name.includes("cringle")) dayCrinkles += qty;
+                          else if (pId === 4 || pId === 5 || name.includes("cheesecake") || name.includes("basque")) {
                             dayCheesecake += qty;
                           }
                         });
@@ -2589,7 +2561,7 @@ export default function DashboardPage() {
                                       <p className="flex items-center gap-1.5">
                                         <span className="text-orange-600 font-bold">⏰ Preferred Time:</span>
                                         <span className="font-bold text-stone-800 bg-white px-2 py-0.5 rounded-md border border-stone-200">
-                                          {timePart}
+                                          {formatPreferredTimeDisplay(timePart)}
                                         </span>
                                       </p>
                                       <p className="truncate">
@@ -3152,7 +3124,7 @@ export default function DashboardPage() {
                     <div>
                       <div className="flex items-center gap-2">
                         <h4 className="text-sm font-black text-stone-900">
-                          Bakery Production Summary
+                          Items to Bake Summary
                         </h4>
                         <span className="px-2.5 py-0.5 rounded-full bg-orange-600 text-white text-[10px] font-bold">
                           {bakingProductionData.totalToBakeCount} Items Needed
@@ -3167,7 +3139,7 @@ export default function DashboardPage() {
                     onClick={() => setActiveTab("baking")}
                     className="px-4 py-2.5 rounded-xl bg-stone-900 hover:bg-orange-600 text-white text-xs font-bold transition cursor-pointer shrink-0 shadow-sm flex items-center gap-2 group"
                   >
-                    <span>View Full Baking Schedule</span>
+                    <span>View Items to Bake</span>
                     <span className="group-hover:translate-x-1 transition-transform">➔</span>
                   </button>
                 </div>

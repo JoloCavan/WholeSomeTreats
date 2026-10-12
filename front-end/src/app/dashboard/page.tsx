@@ -355,6 +355,42 @@ export const formatDeliveryDate = (dateStr?: string | null, createdAtStr?: strin
   }
 
   const str = dateStr.trim();
+
+  // If already formatted with AM/PM, return directly
+  if (str.includes("AM") || str.includes("PM") || str.includes("am") || str.includes("pm")) {
+    return str;
+  }
+
+  // Handle combined "YYYY-MM-DD HH:mm" or "YYYY-MM-DDTHH:mm"
+  if (str.includes(" ") || (str.includes("T") && str.includes(":"))) {
+    const separator = str.includes(" ") ? " " : "T";
+    const [dPart, tPart] = str.split(separator);
+    let dateFormatted = dPart;
+    if (dPart.includes("-")) {
+      const parts = dPart.split("-");
+      if (parts.length === 3) {
+        const year = parts[0];
+        const month = parseInt(parts[1], 10);
+        const day = parseInt(parts[2], 10);
+        if (!isNaN(month) && !isNaN(day) && year.length === 4) {
+          dateFormatted = `${month}/${day}/${year}`;
+        }
+      }
+    }
+
+    if (tPart && tPart.includes(":")) {
+      const [hStr, mStr] = tPart.split(":");
+      const h = parseInt(hStr, 10);
+      if (!isNaN(h)) {
+        const period = h >= 12 ? "PM" : "AM";
+        const h12 = h % 12 || 12;
+        const mClean = (mStr || "00").split(".")[0].slice(0, 2);
+        return `${dateFormatted} at ${h12}:${mClean} ${period}`;
+      }
+    }
+    return `${dateFormatted} ${tPart}`;
+  }
+
   if (str.includes("-")) {
     const cleanStr = str.split("T")[0];
     const parts = cleanStr.split("-");
@@ -472,6 +508,7 @@ export default function DashboardPage() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartDeliveryAddress, setCartDeliveryAddress] = useState<string>("Olongapo City");
   const [cartDeliveryDate, setCartDeliveryDate] = useState<string>(getTomorrowLocalDateString());
+  const [cartDeliveryTime, setCartDeliveryTime] = useState<string>("10:00");
   const [isCheckingOutCart, setIsCheckingOutCart] = useState<boolean>(false);
 
   const fetchCart = async () => {
@@ -585,11 +622,15 @@ export default function DashboardPage() {
     const itemsSubtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
     const totalOrderAmount = itemsSubtotal + 50;
 
+    const combinedDeliveryDateTime = cartDeliveryTime
+      ? `${cartDeliveryDate} ${cartDeliveryTime}`
+      : cartDeliveryDate;
+
     const payload = {
       userId: currentUserId,
       customerName: currentCustomerName,
       customerAddress: cartDeliveryAddress || "Olongapo City",
-      deliveryDate: cartDeliveryDate,
+      deliveryDate: combinedDeliveryDateTime,
       items: cart.map((item) => ({
         productId: item.product_id,
         variationId: item.variation_id || null,
@@ -622,7 +663,7 @@ export default function DashboardPage() {
       user_id: currentUserId,
       customer_name: currentCustomerName,
       customer_address: cartDeliveryAddress || "Olongapo City",
-      delivery_date: cartDeliveryDate,
+      delivery_date: combinedDeliveryDateTime,
       total_amount: totalOrderAmount,
       payment_method: "COD",
       status: "Pending",
@@ -1961,6 +2002,19 @@ export default function DashboardPage() {
                   {/* CART ITEMS LIST */}
                   <div className="lg:col-span-2 space-y-4">
                     <div className="bg-white border border-orange-200/80 rounded-3xl overflow-hidden shadow-sm">
+                      {/* DELIVERY SCHEDULE BANNER */}
+                      <div className="px-5 py-3.5 bg-orange-50/70 border-b border-orange-200/60 flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="text-base">🚚</span>
+                          <span className="font-bold text-stone-700">Scheduled Delivery:</span>
+                          <span className="font-extrabold text-orange-700 bg-white px-2.5 py-1 rounded-xl border border-orange-200 shadow-xs">
+                            {formatDeliveryDate(`${cartDeliveryDate} ${cartDeliveryTime}`)}
+                          </span>
+                        </div>
+                        <span className="text-[11px] text-stone-500 font-medium">
+                          You can change delivery date & time in the checkout summary.
+                        </span>
+                      </div>
                       <div className="divide-y divide-stone-100">
                         {cart.map((item) => (
                           <div key={item.id} className="p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4 hover:bg-orange-50/30 transition">
@@ -2055,14 +2109,53 @@ export default function DashboardPage() {
                             />
                           </div>
 
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            <div>
+                              <label className="block text-stone-700 font-bold mb-1">Preferred Date</label>
+                              <input
+                                type="date"
+                                value={cartDeliveryDate}
+                                onChange={(e) => setCartDeliveryDate(e.target.value)}
+                                className="w-full px-3 py-2 rounded-xl bg-orange-50/40 border border-orange-200 text-stone-900 focus:outline-none focus:border-orange-500 font-medium text-xs cursor-pointer"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-stone-700 font-bold mb-1">Preferred Time</label>
+                              <input
+                                type="time"
+                                value={cartDeliveryTime}
+                                onChange={(e) => setCartDeliveryTime(e.target.value)}
+                                className="w-full px-3 py-2 rounded-xl bg-orange-50/40 border border-orange-200 text-stone-900 focus:outline-none focus:border-orange-500 font-medium text-xs cursor-pointer"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Quick delivery time slots */}
                           <div>
-                            <label className="block text-stone-700 font-bold mb-1">Preferred Delivery Date</label>
-                            <input
-                              type="date"
-                              value={cartDeliveryDate}
-                              onChange={(e) => setCartDeliveryDate(e.target.value)}
-                              className="w-full px-3.5 py-2.5 rounded-xl bg-orange-50/40 border border-orange-200 text-stone-900 focus:outline-none focus:border-orange-500 font-medium text-xs"
-                            />
+                            <span className="block text-[11px] font-bold text-stone-500 mb-1.5 uppercase tracking-wider">
+                              Quick Time Slots:
+                            </span>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {[
+                                { label: "🌅 Morning (9:00 AM)", time: "09:00" },
+                                { label: "☀️ Noon (12:00 PM)", time: "12:00" },
+                                { label: "🍪 Afternoon (3:00 PM)", time: "15:00" },
+                                { label: "🌙 Evening (6:00 PM)", time: "18:00" },
+                              ].map((slot) => (
+                                <button
+                                  key={slot.time}
+                                  type="button"
+                                  onClick={() => setCartDeliveryTime(slot.time)}
+                                  className={`px-2 py-1.5 rounded-xl text-[10px] font-bold text-left transition cursor-pointer border ${
+                                    cartDeliveryTime === slot.time
+                                      ? "bg-orange-600 text-white border-orange-600 shadow-sm"
+                                      : "bg-stone-50 hover:bg-orange-50 text-stone-700 border-stone-200 hover:border-orange-300"
+                                  }`}
+                                >
+                                  {slot.label}
+                                </button>
+                              ))}
+                            </div>
                           </div>
                         </div>
 
@@ -2152,28 +2245,9 @@ export default function DashboardPage() {
                                 {isAdmin ? (
                                   <div className="space-y-1">
                                     {o.status === "Pending" ? (
-                                      <div className="flex items-center gap-1.5 flex-wrap">
-                                        <span className="px-2.5 py-1 rounded-xl text-xs font-bold border bg-amber-50 text-amber-800 border-amber-300">
-                                          ⏳ Pending Review
-                                        </span>
-                                        <button
-                                          onClick={() => handleApproveOrder(o.id)}
-                                          className="px-2.5 py-1 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition flex items-center gap-1 cursor-pointer"
-                                          title="Approve Order"
-                                        >
-                                          ✓ Approve
-                                        </button>
-                                        <button
-                                          onClick={() => {
-                                            setOrderToDecline(o);
-                                            setDeclineReasonInput("");
-                                          }}
-                                          className="px-2.5 py-1 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-sm transition flex items-center gap-1 cursor-pointer"
-                                          title="Decline Order"
-                                        >
-                                          ✕ Decline
-                                        </button>
-                                      </div>
+                                      <span className="px-2.5 py-1 rounded-xl text-xs font-bold border bg-amber-50 text-amber-800 border-amber-300">
+                                        ⏳ Pending
+                                      </span>
                                     ) : o.status === "Declined" ? (
                                       <div>
                                         <div className="flex items-center gap-2">
@@ -2252,42 +2326,66 @@ export default function DashboardPage() {
                                 )}
                               </td>
                               <td className="py-3.5 text-right space-x-2">
-                                {isAdmin && (
-                                  <button
-                                    onClick={() => {
-                                      const targetUser: UserItem = usersList.find(
-                                        (u) =>
-                                          u.id === o.user_id ||
-                                          (u.full_name && u.full_name.toLowerCase() === o.customer_name?.toLowerCase()) ||
-                                          (u.username && u.username.toLowerCase() === o.customer_name?.toLowerCase())
-                                      ) || {
-                                        id: o.user_id || 2,
-                                        username: o.customer_name || `Customer #${o.user_id}`,
-                                        full_name: o.customer_name || `Customer #${o.user_id}`,
-                                        phone_number: "N/A",
-                                        address: o.customer_address || "Olongapo City",
-                                        role: "Customer",
-                                      };
-                                      openDirectMessageWithUser(targetUser);
-                                    }}
-                                    className="px-2.5 py-1.5 rounded-lg bg-orange-100 hover:bg-orange-200 text-orange-800 font-bold cursor-pointer transition"
-                                  >
-                                    Message
-                                  </button>
-                                )}
-                                <button
-                                  onClick={() => setSelectedOrderDetails(o)}
-                                  className="px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 font-bold hover:bg-blue-100 cursor-pointer"
-                                >
-                                  Details
-                                </button>
-                                {isAdmin && (
-                                  <button
-                                    onClick={() => setOrderToDelete(o)}
-                                    className="px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold cursor-pointer shadow-sm transition"
-                                  >
-                                    Delete
-                                  </button>
+                                {isAdmin && o.status === "Pending" ? (
+                                  <div className="inline-flex items-center gap-2">
+                                    <button
+                                      onClick={() => handleApproveOrder(o.id)}
+                                      className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-sm hover:shadow transition flex items-center gap-1 cursor-pointer"
+                                      title="Approve Order"
+                                    >
+                                      ✓ Approve
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setOrderToDecline(o);
+                                        setDeclineReasonInput("");
+                                      }}
+                                      className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-sm hover:shadow transition flex items-center gap-1 cursor-pointer"
+                                      title="Decline Order"
+                                    >
+                                      ✕ Decline
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <>
+                                    {isAdmin && (
+                                      <button
+                                        onClick={() => {
+                                          const targetUser: UserItem = usersList.find(
+                                            (u) =>
+                                              u.id === o.user_id ||
+                                              (u.full_name && u.full_name.toLowerCase() === o.customer_name?.toLowerCase()) ||
+                                              (u.username && u.username.toLowerCase() === o.customer_name?.toLowerCase())
+                                          ) || {
+                                            id: o.user_id || 2,
+                                            username: o.customer_name || `Customer #${o.user_id}`,
+                                            full_name: o.customer_name || `Customer #${o.user_id}`,
+                                            phone_number: "N/A",
+                                            address: o.customer_address || "Olongapo City",
+                                            role: "Customer",
+                                          };
+                                          openDirectMessageWithUser(targetUser);
+                                        }}
+                                        className="px-2.5 py-1.5 rounded-lg bg-orange-100 hover:bg-orange-200 text-orange-800 font-bold cursor-pointer transition"
+                                      >
+                                        Message
+                                      </button>
+                                    )}
+                                    <button
+                                      onClick={() => setSelectedOrderDetails(o)}
+                                      className="px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 font-bold hover:bg-blue-100 cursor-pointer"
+                                    >
+                                      Details
+                                    </button>
+                                    {isAdmin && (
+                                      <button
+                                        onClick={() => setOrderToDelete(o)}
+                                        className="px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold cursor-pointer shadow-sm transition"
+                                      >
+                                        Delete
+                                      </button>
+                                    )}
+                                  </>
                                 )}
                               </td>
                             </tr>

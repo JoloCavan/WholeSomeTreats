@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 
 export interface Product {
@@ -435,6 +435,12 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState("products");
   const [user, setUser] = useState<{ id?: number; username?: string; full_name?: string; role?: string } | null>(null);
 
+  const isAdmin =
+    (user?.role || "").toLowerCase() === "admin" ||
+    (user?.role || "").toLowerCase() === "administrator" ||
+    (user?.role || "") === "1" ||
+    user?.username?.toLowerCase() === "wholesome";
+
   // Products State
   const [products, setProducts] = useState<Product[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
@@ -510,6 +516,57 @@ export default function DashboardPage() {
   const [cartDeliveryDate, setCartDeliveryDate] = useState<string>(getTomorrowLocalDateString());
   const [cartDeliveryTime, setCartDeliveryTime] = useState<string>("10:00");
   const [isCheckingOutCart, setIsCheckingOutCart] = useState<boolean>(false);
+
+  // Customer Pending and Declined Orders for Cart View
+  const customerPendingOrders = useMemo(() => {
+    if (isAdmin || !user) return [];
+    return orders.filter((o) => {
+      const isUserMatch =
+        o.user_id === user.id ||
+        (user.full_name && o.customer_name?.toLowerCase() === user.full_name.toLowerCase()) ||
+        (user.username && o.customer_name?.toLowerCase() === user.username.toLowerCase());
+      return isUserMatch && o.status === "Pending";
+    });
+  }, [orders, isAdmin, user]);
+
+  const customerDeclinedOrders = useMemo(() => {
+    if (isAdmin || !user) return [];
+    return orders.filter((o) => {
+      const isUserMatch =
+        o.user_id === user.id ||
+        (user.full_name && o.customer_name?.toLowerCase() === user.full_name.toLowerCase()) ||
+        (user.username && o.customer_name?.toLowerCase() === user.username.toLowerCase());
+      return isUserMatch && o.status === "Declined";
+    });
+  }, [orders, isAdmin, user]);
+
+  const handleDismissDeclinedOrder = async (orderId: number) => {
+    setOrders((prev) => prev.filter((o) => o.id !== orderId));
+    const stored = loadStoredOrders();
+    saveStoredOrders(stored.filter((o) => o.id !== orderId));
+    try {
+      await fetch(`/api/orders/admin/delete/${orderId}`, { method: "DELETE" });
+    } catch (e) {}
+    showToast("success", "Declined order notification dismissed.");
+  };
+
+  const handleReorderDeclinedItems = (order: Order) => {
+    const itemsToAdd: CartItem[] = (order.items || []).map((it) => ({
+      id: Date.now() + Math.floor(Math.random() * 1000),
+      product_id: it.product_id,
+      variation_id: it.variation_id || null,
+      product_name: it.product_name || "Product",
+      flavor_name: it.flavor_name,
+      unit_type: it.unit_type || "pc",
+      price: it.price_at_purchase,
+      quantity: it.quantity,
+    }));
+    const newCart = [...cart, ...itemsToAdd];
+    setCart(newCart);
+    saveStoredCart(newCart);
+    handleDismissDeclinedOrder(order.id);
+    showToast("success", "Items added back to your cart! You can now adjust details and checkout.");
+  };
 
   const fetchCart = async () => {
     let localCart = loadStoredCart();
@@ -687,8 +744,7 @@ export default function DashboardPage() {
     await handleClearCart();
     setIsCheckingOutCart(false);
     await fetchOrders();
-    showToast("success", "🎉 Order placed successfully! Check your dashboard My Orders.");
-    setActiveTab("orders");
+    showToast("success", "🎉 Order placed! Waiting for bakery approval right here in your Cart.");
   };
 
   // Users State
@@ -1663,12 +1719,6 @@ export default function DashboardPage() {
     setActiveTab("messages");
   };
 
-  const isAdmin =
-    (user?.role || "").toLowerCase() === "admin" ||
-    (user?.role || "").toLowerCase() === "administrator" ||
-    (user?.role || "") === "1" ||
-    user?.username?.toLowerCase() === "wholesome";
-
   const navItems = [
     { id: "products", label: "Products", icon: "📦" },
     ...(!isAdmin ? [{ id: "cart", label: "Cart", icon: "🛒", badge: cart.reduce((sum, item) => sum + item.quantity, 0) }] : []),
@@ -1981,22 +2031,180 @@ export default function DashboardPage() {
                 )}
               </div>
 
-              {cart.length === 0 ? (
-                <div className="bg-white border border-orange-200/80 rounded-3xl p-12 text-center shadow-sm space-y-4 max-w-lg mx-auto my-8">
-                  <div className="w-20 h-20 bg-orange-50 text-orange-500 rounded-full flex items-center justify-center text-4xl mx-auto border border-orange-200">
-                    🛒
-                  </div>
-                  <h3 className="text-lg font-black text-stone-900">Your Cart is Empty</h3>
-                  <p className="text-xs text-stone-500 leading-relaxed">
-                    Looks like you haven't added any delicious treats to your cart yet. Explore our freshly baked products!
-                  </p>
-                  <button
-                    onClick={() => setActiveTab("products")}
-                    className="px-6 py-3 rounded-2xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs shadow-lg shadow-orange-600/30 transition cursor-pointer inline-flex items-center gap-2"
-                  >
-                    <span>🍰 Browse Products</span>
-                  </button>
+              {/* CUSTOMER CART: PENDING & DECLINED ORDERS WAITING STATUS */}
+              {!isAdmin && (customerDeclinedOrders.length > 0 || customerPendingOrders.length > 0) && (
+                <div className="space-y-4">
+                  {/* DECLINED ORDERS BANNER */}
+                  {customerDeclinedOrders.map((dOrder) => (
+                    <div
+                      key={dOrder.id}
+                      className="bg-rose-50/90 border-2 border-rose-300 rounded-3xl p-5 sm:p-6 shadow-sm space-y-3 animate-in fade-in"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-2xl bg-rose-600 text-white flex items-center justify-center text-lg font-black shadow-md shadow-rose-600/20">
+                            ✕
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h3 className="text-sm sm:text-base font-black text-rose-950">
+                                Order #{dOrder.id} was Declined by Bakery
+                              </h3>
+                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-200 text-rose-900 border border-rose-300">
+                                Declined
+                              </span>
+                            </div>
+                            <p className="text-xs text-rose-800 font-medium mt-0.5">
+                              We apologize, but the bakery was unable to accept this order at this time.
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleReorderDeclinedItems(dOrder)}
+                            className="px-3.5 py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold shadow-md shadow-orange-600/20 transition cursor-pointer flex items-center gap-1.5"
+                          >
+                            <span>🔄</span>
+                            <span>Put Back to Cart</span>
+                          </button>
+                          <button
+                            onClick={() => handleDismissDeclinedOrder(dOrder.id)}
+                            className="px-3 py-2 rounded-xl bg-white hover:bg-rose-100 text-rose-800 text-xs font-bold border border-rose-200 transition cursor-pointer"
+                          >
+                            Dismiss
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Bakery Reason Box */}
+                      <div className="bg-white rounded-2xl p-4 border border-rose-200 text-xs shadow-xs">
+                        <span className="text-[11px] font-bold text-rose-700 uppercase tracking-wider block mb-1">
+                          Bakery Note / Reason for Decline:
+                        </span>
+                        <p className="text-stone-900 font-bold bg-rose-50/70 p-3 rounded-xl border border-rose-200/60 text-xs sm:text-sm">
+                          "{dOrder.decline_reason || "Unfortunately, our bakery cannot fulfill this order at the scheduled time."}"
+                        </p>
+                        <div className="mt-2.5 flex flex-wrap justify-between items-center text-stone-500 text-[11px] pt-1">
+                          <span>
+                            Requested for:{" "}
+                            <strong className="text-stone-700">
+                              {formatDeliveryDate(dOrder.delivery_date, dOrder.created_at)}
+                            </strong>
+                          </span>
+                          <span>
+                            Total: <strong className="text-stone-900">₱{dOrder.total_amount.toFixed(2)}</strong>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* PENDING ORDERS (WAITING FOR BAKERY APPROVAL) */}
+                  {customerPendingOrders.map((pOrder) => (
+                    <div
+                      key={pOrder.id}
+                      className="bg-amber-50/80 border-2 border-amber-300 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4 animate-in fade-in"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center text-lg shadow-md shadow-amber-500/20 animate-pulse">
+                            ⏳
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h3 className="text-sm sm:text-base font-black text-amber-950">
+                                Order #{pOrder.id} — Waiting for Bakery Approval
+                              </h3>
+                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-200 text-amber-900 border border-amber-300">
+                                Pending Approval
+                              </span>
+                            </div>
+                            <p className="text-xs text-amber-800 font-medium mt-0.5">
+                              Your order is currently being reviewed by our bakery. Once approved, it will move to your{" "}
+                              <button
+                                onClick={() => setActiveTab("orders")}
+                                className="underline font-bold hover:text-amber-950 cursor-pointer"
+                              >
+                                My Orders
+                              </button>{" "}
+                              tab!
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[11px] text-amber-800 font-bold block">Order Total</span>
+                          <span className="text-lg font-black text-amber-950">
+                            ₱{pOrder.total_amount.toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Order summary details */}
+                      <div className="bg-white/90 rounded-2xl p-4 border border-amber-200/80 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                        <div>
+                          <span className="text-[11px] font-bold text-stone-500 uppercase tracking-wider block mb-1">
+                            Delivery Schedule & Address
+                          </span>
+                          <p className="font-extrabold text-stone-800">
+                            📅 {formatDeliveryDate(pOrder.delivery_date, pOrder.created_at)}
+                          </p>
+                          <p className="text-stone-600 font-medium mt-0.5">
+                            📍 {pOrder.customer_address || "Olongapo City"}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-[11px] font-bold text-stone-500 uppercase tracking-wider block mb-1">
+                            Ordered Items ({(pOrder.items || []).length})
+                          </span>
+                          <div className="space-y-1 max-h-24 overflow-y-auto pr-1 divide-y divide-stone-100">
+                            {(pOrder.items || []).map((it, idx) => (
+                              <div key={idx} className="flex justify-between text-stone-700 pt-1 first:pt-0">
+                                <span className="font-semibold truncate">
+                                  {it.product_name} {it.flavor_name ? `(${it.flavor_name})` : ""} × {it.quantity}
+                                </span>
+                                <span className="font-bold text-stone-900">
+                                  ₱{(it.price_at_purchase * it.quantity).toFixed(2)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
+              )}
+
+              {cart.length === 0 ? (
+                customerPendingOrders.length > 0 || customerDeclinedOrders.length > 0 ? (
+                  <div className="bg-stone-50 border border-stone-200 rounded-3xl p-6 text-center space-y-3">
+                    <p className="text-stone-600 text-xs font-semibold">
+                      You have no additional items currently in your shopping cart.
+                    </p>
+                    <button
+                      onClick={() => setActiveTab("products")}
+                      className="px-5 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs shadow-md shadow-orange-600/20 transition cursor-pointer inline-flex items-center gap-1.5"
+                    >
+                      <span>🍰 Browse More Products</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="bg-white border border-orange-200/80 rounded-3xl p-12 text-center shadow-sm space-y-4 max-w-lg mx-auto my-8">
+                    <div className="w-20 h-20 bg-orange-50 text-orange-500 rounded-full flex items-center justify-center text-4xl mx-auto border border-orange-200">
+                      🛒
+                    </div>
+                    <h3 className="text-lg font-black text-stone-900">Your Cart is Empty</h3>
+                    <p className="text-xs text-stone-500 leading-relaxed">
+                      Looks like you haven't added any delicious treats to your cart yet. Explore our freshly baked products!
+                    </p>
+                    <button
+                      onClick={() => setActiveTab("products")}
+                      className="px-6 py-3 rounded-2xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs shadow-lg shadow-orange-600/30 transition cursor-pointer inline-flex items-center gap-2"
+                    >
+                      <span>🍰 Browse Products</span>
+                    </button>
+                  </div>
+                )
               ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                   {/* CART ITEMS LIST */}
@@ -2209,6 +2417,8 @@ export default function DashboardPage() {
                       (user.full_name && o.customer_name?.toLowerCase() === user.full_name.toLowerCase()) ||
                       (user.username && o.customer_name?.toLowerCase() === user.username.toLowerCase());
                     if (!isUserMatch) return false;
+                    // Pending and Declined orders are displayed in Cart view until approved
+                    if (o.status === "Pending" || o.status === "Declined") return false;
                   }
                   return true;
                 }).length === 0 ? (
@@ -2234,6 +2444,8 @@ export default function DashboardPage() {
                               (user.full_name && o.customer_name?.toLowerCase() === user.full_name.toLowerCase()) ||
                               (user.username && o.customer_name?.toLowerCase() === user.username.toLowerCase());
                             if (!isUserMatch) return false;
+                            // Pending and Declined orders are displayed in Cart view until approved
+                            if (o.status === "Pending" || o.status === "Declined") return false;
                           }
                           return true;
                         })

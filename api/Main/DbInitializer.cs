@@ -96,16 +96,7 @@ namespace API.Main
                         phone_number = CASE WHEN phone_number IS NULL OR TRIM(phone_number) = '' THEN '09123456789' ELSE phone_number END,
                         address = CASE WHEN address IS NULL OR TRIM(address) = '' THEN 'Olongapo City' ELSE address END;
 
-                    -- Safely re-sequence user IDs so they are clean and consecutive
-                    WITH renumbered AS (
-                        SELECT id, ROW_NUMBER() OVER (ORDER BY id ASC) AS new_id
-                        FROM users
-                    )
-                    UPDATE users u
-                    SET id = r.new_id
-                    FROM renumbered r
-                    WHERE u.id = r.id;
-
+                    -- Ensure users id serial sequence is up to date
                     SELECT setval(pg_get_serial_sequence('users', 'id'), (SELECT COALESCE(MAX(id), 1) FROM users));
                 ";
                 cmd.Parameters.Clear();

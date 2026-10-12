@@ -419,13 +419,59 @@ export const formatDeliveryDate = (dateStr?: string | null, createdAtStr?: strin
   return str;
 };
 
-export const getTomorrowLocalDateString = (): string => {
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const year = tomorrow.getFullYear();
-  const month = String(tomorrow.getMonth() + 1).padStart(2, "0");
-  const day = String(tomorrow.getDate()).padStart(2, "0");
+export const getNextSundayLocalDateString = (fromDate: Date = new Date()): string => {
+  const d = new Date(fromDate);
+  const dayOfWeek = d.getDay(); // 0 is Sunday
+  let daysUntilSunday = (7 - dayOfWeek) % 7;
+  if (daysUntilSunday === 0) daysUntilSunday = 7;
+  d.setDate(d.getDate() + daysUntilSunday);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+};
+
+export const isSundayDate = (dateStr: string): boolean => {
+  if (!dateStr) return false;
+  const clean = dateStr.trim().split(" ")[0];
+  const parts = clean.split("-");
+  if (parts.length !== 3) return false;
+  const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+  return d.getDay() === 0;
+};
+
+export const getUpcomingSundays = (count: number = 4): string[] => {
+  const list: string[] = [];
+  const base = new Date();
+  const dayOfWeek = base.getDay();
+  let daysUntilNextSunday = (7 - dayOfWeek) % 7;
+  if (daysUntilNextSunday === 0) daysUntilNextSunday = 7;
+
+  for (let i = 0; i < count; i++) {
+    const d = new Date(base);
+    d.setDate(base.getDate() + daysUntilNextSunday + i * 7);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    list.push(`${year}-${month}-${day}`);
+  }
+  return list;
+};
+
+export const formatSundayDateDisplay = (dateStr: string): string => {
+  try {
+    const clean = dateStr.trim().split(" ")[0];
+    const parts = clean.split("-");
+    if (parts.length === 3) {
+      const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+      return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+    }
+  } catch (e) {}
+  return dateStr;
+};
+
+export const getTomorrowLocalDateString = (): string => {
+  return getNextSundayLocalDateString();
 };
 
 export default function DashboardPage() {
@@ -440,7 +486,9 @@ export default function DashboardPage() {
     (user?.role || "").toLowerCase() === "admin" ||
     (user?.role || "").toLowerCase() === "administrator" ||
     (user?.role || "") === "1" ||
-    user?.username?.toLowerCase() === "wholesome";
+    user?.username?.toLowerCase() === "wholesome" ||
+    user?.username?.toLowerCase() === "admin" ||
+    user?.username?.toLowerCase() === "superadmin";
 
   // Products State
   const [products, setProducts] = useState<Product[]>([]);
@@ -571,6 +619,93 @@ export default function DashboardPage() {
     showToast("success", "Items added back to your cart! You can now adjust details and checkout.");
   };
 
+  // Baking Production State & Filters
+  const [bakingDateFilter, setBakingDateFilter] = useState<string>("All");
+  const [bakingStatusFilter, setBakingStatusFilter] = useState<string>("ToBake");
+
+  // Aggregate Baking Quantities
+  const bakingProductionData = useMemo(() => {
+    const targetOrders = orders.filter((o) => {
+      if (o.status === "Declined" || o.status === "Cancelled") return false;
+      if (bakingStatusFilter === "ApprovedOnly") {
+        if (o.status !== "Approved" && o.status !== "Processing") return false;
+      } else if (bakingStatusFilter === "ToBake") {
+        if (o.status !== "Pending" && o.status !== "Approved" && o.status !== "Processing") return false;
+      }
+      if (bakingDateFilter !== "All") {
+        const orderDate = (o.delivery_date || "").trim().split(" ")[0];
+        if (orderDate !== bakingDateFilter) return false;
+      }
+      return true;
+    });
+
+    let bananaBreads = 0;
+    let cookies = 0;
+    let crinkles = 0;
+    let cheesecakesTotal = 0;
+    const cheesecakeFlavors: Record<string, number> = {
+      Original: 0,
+      Strawberry: 0,
+      Blueberry: 0,
+      Mango: 0,
+    };
+    const cheesecakeTypes = { burntBasque: 0, newYork: 0 };
+    const otherItems: Record<string, number> = {};
+
+    targetOrders.forEach((o) => {
+      (o.items || []).forEach((it) => {
+        const qty = it.quantity || 1;
+        const name = (it.product_name || "").toLowerCase();
+        const pId = it.product_id;
+        const flavor = it.flavor_name || "Original";
+
+        if (pId === 3 || name.includes("banana")) {
+          bananaBreads += qty;
+        } else if (pId === 1 || name.includes("cookie")) {
+          cookies += qty;
+        } else if (pId === 2 || name.includes("crinkle")) {
+          crinkles += qty;
+        } else if (pId === 4 || pId === 5 || name.includes("cheesecake")) {
+          cheesecakesTotal += qty;
+          if (pId === 4 || name.includes("burnt")) {
+            cheesecakeTypes.burntBasque += qty;
+          } else {
+            cheesecakeTypes.newYork += qty;
+          }
+          cheesecakeFlavors[flavor] = (cheesecakeFlavors[flavor] || 0) + qty;
+        } else {
+          const key = it.product_name || `Product #${pId}`;
+          otherItems[key] = (otherItems[key] || 0) + qty;
+        }
+      });
+    });
+
+    const totalToBakeCount = bananaBreads + cookies + crinkles + cheesecakesTotal;
+
+    const groupedBySunday: Record<string, Order[]> = {};
+    targetOrders.forEach((o) => {
+      const d = (o.delivery_date || "").trim().split(" ")[0] || "Unscheduled";
+      if (!groupedBySunday[d]) groupedBySunday[d] = [];
+      groupedBySunday[d].push(o);
+    });
+
+    const sortedSundays = Object.keys(groupedBySunday).sort();
+
+    return {
+      bananaBreads,
+      cookies,
+      crinkles,
+      cheesecakesTotal,
+      cheesecakeFlavors,
+      cheesecakeTypes,
+      otherItems,
+      totalToBakeCount,
+      targetOrders,
+      groupedBySunday,
+      sortedSundays,
+    };
+  }, [orders, bakingDateFilter, bakingStatusFilter]);
+
   const fetchCart = async () => {
     let localCart = loadStoredCart();
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -680,6 +815,11 @@ export default function DashboardPage() {
 
     if (unavailableCartItems.length > 0) {
       showToast("error", `Cannot checkout: "${unavailableCartItems[0].product_name}" is currently unavailable. Please remove it from your cart.`);
+      return;
+    }
+
+    if (!isSundayDate(cartDeliveryDate)) {
+      showToast("error", "Deliveries are scheduled on Sundays only. Please select a valid Sunday.");
       return;
     }
 
@@ -1814,6 +1954,7 @@ export default function DashboardPage() {
 
   const navItems = [
     { id: "products", label: "Products", icon: "📦" },
+    ...(isAdmin ? [{ id: "baking", label: "Bake Production", icon: "👩‍🍳", badge: bakingProductionData.totalToBakeCount }] : []),
     ...(!isAdmin ? [{ id: "cart", label: "Cart", icon: "🛒", badge: cart.reduce((sum, item) => sum + item.quantity, 0) }] : []),
     { id: "orders", label: isAdmin ? "Orders" : "My Orders", icon: "📋" },
     { id: "announcements", label: "Announcements", icon: "📢" },
@@ -2094,6 +2235,420 @@ export default function DashboardPage() {
                   ))}
                 </div>
               )}
+            </div>
+          ) : activeTab === "baking" ? (
+            /* BAKING PRODUCTION & DELIVERY SCHEDULE VIEW */
+            <div className="space-y-6 animate-in fade-in duration-200">
+              {/* HEADER & ACTIONS */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-2 border-b border-orange-100">
+                <div>
+                  <h2 className="text-xl sm:text-2xl font-black text-stone-900 tracking-tight flex items-center gap-2.5">
+                    <span>👩‍🍳 Kitchen Production & Delivery Schedule</span>
+                    <span className="text-xs px-3 py-1 rounded-full bg-orange-100 text-orange-800 font-bold border border-orange-200">
+                      {bakingProductionData.totalToBakeCount} Items to Bake
+                    </span>
+                  </h2>
+                  <p className="text-xs text-stone-500 mt-1">
+                    Live production tally of banana breads, cookies, crinkles, and cheesecakes for Sunday deliveries.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2.5 flex-wrap self-end sm:self-auto">
+                  <button
+                    onClick={() => window.print()}
+                    className="px-3.5 py-2 rounded-xl bg-white hover:bg-orange-50 border border-orange-200 text-stone-700 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    title="Print kitchen production bake sheet"
+                  >
+                    <span>🖨️</span>
+                    <span>Print Bake Sheet</span>
+                  </button>
+                  <button
+                    onClick={fetchOrders}
+                    className="px-3.5 py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md shadow-orange-600/20"
+                  >
+                    <span>🔄</span>
+                    <span>Refresh Tallies</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* FILTER BAR */}
+              <div className="bg-white border border-orange-200/80 rounded-2xl p-4 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                {/* Status Filter */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] font-bold text-stone-500 uppercase tracking-wider mr-1">
+                    Order Status:
+                  </span>
+                  {[
+                    { id: "ToBake", label: "🔥 To Bake (Pending + Approved)" },
+                    { id: "ApprovedOnly", label: "✅ Approved Only" },
+                    { id: "All", label: "📋 All Orders" },
+                  ].map((filter) => (
+                    <button
+                      key={filter.id}
+                      onClick={() => setBakingStatusFilter(filter.id)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${
+                        bakingStatusFilter === filter.id
+                          ? "bg-stone-900 text-white border-stone-900 shadow-xs"
+                          : "bg-stone-50 hover:bg-stone-100 text-stone-600 border-stone-200"
+                      }`}
+                    >
+                      {filter.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Sunday Date Filter */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] font-bold text-stone-500 uppercase tracking-wider mr-1">
+                    Sunday Batch:
+                  </span>
+                  <button
+                    onClick={() => setBakingDateFilter("All")}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${
+                      bakingDateFilter === "All"
+                        ? "bg-orange-600 text-white border-orange-600 shadow-xs"
+                        : "bg-orange-50/60 hover:bg-orange-100 text-orange-900 border-orange-200"
+                    }`}
+                  >
+                    All Upcoming Sundays
+                  </button>
+                  {bakingProductionData.sortedSundays.map((sun) => (
+                    <button
+                      key={sun}
+                      onClick={() => setBakingDateFilter(sun)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${
+                        bakingDateFilter === sun
+                          ? "bg-orange-600 text-white border-orange-600 shadow-xs"
+                          : "bg-orange-50/60 hover:bg-orange-100 text-orange-900 border-orange-200"
+                      }`}
+                    >
+                      🗓️ {formatSundayDateDisplay(sun)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 4 GRAND PRODUCTION TALLY CARDS */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* 1. BANANA BREAD */}
+                <div className="bg-white border-2 border-amber-200/90 rounded-3xl p-5 shadow-xs relative overflow-hidden flex flex-col justify-between group hover:shadow-md transition">
+                  <div className="absolute -top-3 -right-3 text-6xl opacity-10 select-none">🍌</div>
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center text-xl font-bold shadow-xs">
+                        🍌
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-50 text-amber-800 border border-amber-200">
+                        Loaf Pans
+                      </span>
+                    </div>
+                    <h3 className="text-sm font-black text-stone-800 mt-3">Banana Breads</h3>
+                    <p className="text-[11px] text-stone-500 font-medium">Choco Chip Nutty Loaves</p>
+                  </div>
+                  <div className="mt-4 pt-3 border-t border-amber-100/80 flex items-baseline justify-between">
+                    <div>
+                      <span className="text-3xl font-black text-amber-700 tracking-tight">
+                        {bakingProductionData.bananaBreads}
+                      </span>
+                      <span className="text-xs font-bold text-stone-600 ml-1.5">loaves to bake</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. COOKIES */}
+                <div className="bg-white border-2 border-orange-200/90 rounded-3xl p-5 shadow-xs relative overflow-hidden flex flex-col justify-between group hover:shadow-md transition">
+                  <div className="absolute -top-3 -right-3 text-6xl opacity-10 select-none">🍪</div>
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="w-10 h-10 rounded-2xl bg-orange-100 text-orange-800 flex items-center justify-center text-xl font-bold shadow-xs">
+                        🍪
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-orange-50 text-orange-800 border border-orange-200">
+                        Batch Trays
+                      </span>
+                    </div>
+                    <h3 className="text-sm font-black text-stone-800 mt-3">Cookies</h3>
+                    <p className="text-[11px] text-stone-500 font-medium">Chocolate Chip Cookies</p>
+                  </div>
+                  <div className="mt-4 pt-3 border-t border-orange-100/80 flex items-baseline justify-between">
+                    <div>
+                      <span className="text-3xl font-black text-orange-700 tracking-tight">
+                        {bakingProductionData.cookies}
+                      </span>
+                      <span className="text-xs font-bold text-stone-600 ml-1.5">pcs to bake</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. CRINKLES */}
+                <div className="bg-white border-2 border-stone-200/90 rounded-3xl p-5 shadow-xs relative overflow-hidden flex flex-col justify-between group hover:shadow-md transition">
+                  <div className="absolute -top-3 -right-3 text-6xl opacity-10 select-none">🍫</div>
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="w-10 h-10 rounded-2xl bg-stone-100 text-stone-800 flex items-center justify-center text-xl font-bold shadow-xs">
+                        🍫
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-stone-50 text-stone-800 border border-stone-200">
+                        Powdered Boxes
+                      </span>
+                    </div>
+                    <h3 className="text-sm font-black text-stone-800 mt-3">Crinkles</h3>
+                    <p className="text-[11px] text-stone-500 font-medium">Fudgy Chewy Crinkles</p>
+                  </div>
+                  <div className="mt-4 pt-3 border-t border-stone-100/80 flex items-baseline justify-between">
+                    <div>
+                      <span className="text-3xl font-black text-stone-800 tracking-tight">
+                        {bakingProductionData.crinkles}
+                      </span>
+                      <span className="text-xs font-bold text-stone-600 ml-1.5">dozens to bake</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. CHEESECAKES */}
+                <div className="bg-white border-2 border-yellow-300 rounded-3xl p-5 shadow-xs relative overflow-hidden flex flex-col justify-between group hover:shadow-md transition">
+                  <div className="absolute -top-3 -right-3 text-6xl opacity-10 select-none">🧀</div>
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="w-10 h-10 rounded-2xl bg-yellow-100 text-yellow-800 flex items-center justify-center text-xl font-bold shadow-xs">
+                        🧀
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-yellow-50 text-yellow-900 border border-yellow-200">
+                        Artisan Cakes
+                      </span>
+                    </div>
+                    <h3 className="text-sm font-black text-stone-800 mt-3">Cheesecakes</h3>
+                    <p className="text-[11px] text-stone-500 font-medium">
+                      Burnt Basque ({bakingProductionData.cheesecakeTypes.burntBasque}) • NY ({bakingProductionData.cheesecakeTypes.newYork})
+                    </p>
+                  </div>
+                  <div className="mt-4 pt-3 border-t border-yellow-100 space-y-2">
+                    <div className="flex items-baseline justify-between">
+                      <span className="text-3xl font-black text-yellow-800 tracking-tight">
+                        {bakingProductionData.cheesecakesTotal}
+                      </span>
+                      <span className="text-xs font-bold text-stone-600 ml-1.5">cakes to bake</span>
+                    </div>
+                    {/* Flavor Breakdown Pills */}
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {Object.entries(bakingProductionData.cheesecakeFlavors).map(([flavor, count]) => {
+                        if (count === 0) return null;
+                        return (
+                          <span
+                            key={flavor}
+                            className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-yellow-50 text-yellow-900 border border-yellow-200/80"
+                          >
+                            {flavor === "Original" ? "🧀" : flavor === "Strawberry" ? "🍓" : flavor === "Blueberry" ? "🫐" : "🥭"}{" "}
+                            {flavor}: {count}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* SUNDAY DELIVERY SCHEDULE & BATCH TIMELINE */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-black text-stone-900 tracking-tight flex items-center gap-2">
+                    <span>🗓️ Sunday Delivery Timeline & Orders Breakdown</span>
+                    <span className="text-xs font-semibold text-stone-500">
+                      (Shows when and what items need to be delivered)
+                    </span>
+                  </h3>
+                </div>
+
+                {bakingProductionData.sortedSundays.length === 0 ? (
+                  <div className="text-center py-16 bg-white border border-orange-200/80 rounded-3xl p-6">
+                    <div className="w-16 h-16 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-3xl mx-auto mb-3">
+                      👨‍🍳
+                    </div>
+                    <h4 className="text-base font-bold text-stone-800">All Caught Up!</h4>
+                    <p className="text-xs text-stone-500 max-w-sm mx-auto mt-1 font-medium">
+                      There are no active orders needing baking for the selected filter. When new customer orders are placed, they will appear here grouped by Sunday.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {bakingProductionData.sortedSundays.map((sundayDate) => {
+                      const dayOrders = bakingProductionData.groupedBySunday[sundayDate] || [];
+
+                      let dayBanana = 0;
+                      let dayCookies = 0;
+                      let dayCrinkles = 0;
+                      let dayCheesecake = 0;
+
+                      dayOrders.forEach((o) => {
+                        (o.items || []).forEach((it) => {
+                          const qty = it.quantity || 1;
+                          const name = (it.product_name || "").toLowerCase();
+                          const pId = it.product_id;
+
+                          if (pId === 3 || name.includes("banana")) dayBanana += qty;
+                          else if (pId === 1 || name.includes("cookie")) dayCookies += qty;
+                          else if (pId === 2 || name.includes("crinkle")) dayCrinkles += qty;
+                          else if (pId === 4 || pId === 5 || name.includes("cheesecake")) {
+                            dayCheesecake += qty;
+                          }
+                        });
+                      });
+
+                      return (
+                        <div
+                          key={sundayDate}
+                          className="bg-white border-2 border-orange-200/90 rounded-3xl p-6 shadow-sm space-y-4 hover:border-orange-300 transition"
+                        >
+                          {/* SUNDAY BATCH HEADER */}
+                          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-4 border-b border-stone-100">
+                            <div className="flex items-center gap-3">
+                              <div className="w-12 h-12 rounded-2xl bg-orange-600 text-white flex flex-col items-center justify-center font-black shadow-md shadow-orange-600/30">
+                                <span className="text-[10px] uppercase font-bold tracking-wider leading-none">SUN</span>
+                                <span className="text-base leading-none mt-0.5">
+                                  {sundayDate.split("-")[2] || "📅"}
+                                </span>
+                              </div>
+                              <div>
+                                <h4 className="text-base font-black text-stone-900 flex items-center gap-2">
+                                  <span>Delivery Date: {formatSundayDateDisplay(sundayDate)}</span>
+                                  <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-orange-100 text-orange-800 font-bold">
+                                    {sundayDate}
+                                  </span>
+                                </h4>
+                                <p className="text-xs text-stone-500 font-medium mt-0.5">
+                                  Total Orders for this batch: {dayOrders.length}
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* BATCH SUB-TALLIES */}
+                            <div className="flex flex-wrap items-center gap-2 bg-orange-50/70 border border-orange-200/60 rounded-2xl p-2.5">
+                              <span className="text-[10px] font-black text-stone-600 uppercase tracking-wider mr-1">
+                                Batch Bake Total:
+                              </span>
+                              {dayBanana > 0 && (
+                                <span className="px-2.5 py-1 rounded-xl text-xs font-bold bg-amber-100 text-amber-900 border border-amber-200">
+                                  🍌 {dayBanana} Loaves
+                                </span>
+                              )}
+                              {dayCookies > 0 && (
+                                <span className="px-2.5 py-1 rounded-xl text-xs font-bold bg-orange-100 text-orange-900 border border-orange-200">
+                                  🍪 {dayCookies} Cookies
+                                </span>
+                              )}
+                              {dayCrinkles > 0 && (
+                                <span className="px-2.5 py-1 rounded-xl text-xs font-bold bg-stone-100 text-stone-900 border border-stone-200">
+                                  🍫 {dayCrinkles} Dozens
+                                </span>
+                              )}
+                              {dayCheesecake > 0 && (
+                                <span className="px-2.5 py-1 rounded-xl text-xs font-bold bg-yellow-100 text-yellow-900 border border-yellow-200">
+                                  🧀 {dayCheesecake} Cheesecakes
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* ORDERS LIST FOR THIS SUNDAY */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 pt-1">
+                            {dayOrders.map((ord) => {
+                              const timePart = (ord.delivery_date || "").includes(" ")
+                                ? (ord.delivery_date || "").split(" ")[1]
+                                : "10:00";
+
+                              return (
+                                <div
+                                  key={ord.id}
+                                  className="p-4 rounded-2xl bg-stone-50/70 border border-stone-200/80 hover:bg-orange-50/30 transition flex flex-col justify-between space-y-3"
+                                >
+                                  <div>
+                                    <div className="flex items-center justify-between gap-2 mb-2">
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-mono text-xs font-extrabold text-orange-700 bg-orange-100/80 px-2 py-0.5 rounded-lg border border-orange-200">
+                                          #{ord.id}
+                                        </span>
+                                        <span className="font-black text-stone-900 text-xs">
+                                          {ord.customer_name || `Customer #${ord.user_id}`}
+                                        </span>
+                                      </div>
+                                      <span
+                                        className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                                          ord.status === "Approved"
+                                            ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                                            : ord.status === "Processing"
+                                            ? "bg-blue-100 text-blue-800 border border-blue-200"
+                                            : "bg-amber-100 text-amber-800 border border-amber-200"
+                                        }`}
+                                      >
+                                        {ord.status}
+                                      </span>
+                                    </div>
+
+                                    <div className="text-[11px] text-stone-600 font-medium space-y-1">
+                                      <p className="flex items-center gap-1.5">
+                                        <span className="text-orange-600 font-bold">⏰ Preferred Time:</span>
+                                        <span className="font-bold text-stone-800 bg-white px-2 py-0.5 rounded-md border border-stone-200">
+                                          {timePart}
+                                        </span>
+                                      </p>
+                                      <p className="truncate">
+                                        <span className="text-stone-500 font-bold">📍 Address:</span> {ord.customer_address || "Olongapo City"}
+                                      </p>
+                                    </div>
+
+                                    {/* ITEMS TO DELIVER */}
+                                    <div className="mt-3 pt-2.5 border-t border-stone-200/60 space-y-1">
+                                      <span className="text-[10px] font-black uppercase tracking-wider text-stone-400 block mb-1">
+                                        Items to Bake & Deliver:
+                                      </span>
+                                      {(ord.items || []).map((it, idx) => (
+                                        <div
+                                          key={idx}
+                                          className="flex items-center justify-between text-xs py-0.5"
+                                        >
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="font-extrabold text-stone-800">
+                                              {it.quantity}x
+                                            </span>
+                                            <span className="text-stone-700 font-medium">
+                                              {it.product_name}
+                                            </span>
+                                            {it.flavor_name && (
+                                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-orange-100 text-orange-800 border border-orange-200">
+                                                {it.flavor_name}
+                                              </span>
+                                            )}
+                                          </div>
+                                          <span className="text-[11px] font-semibold text-stone-500">
+                                            ₱{(it.price_at_purchase * it.quantity).toFixed(2)}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  <div className="pt-2 border-t border-stone-200/60 flex items-center justify-between text-xs">
+                                    <span className="font-bold text-stone-500 text-[11px]">
+                                      Total: <strong className="text-stone-800 font-black">₱{ord.total_amount.toFixed(2)}</strong> ({ord.payment_method})
+                                    </span>
+                                    <button
+                                      onClick={() => setSelectedOrderDetails(ord)}
+                                      className="text-orange-600 hover:text-orange-700 font-bold text-xs underline cursor-pointer"
+                                    >
+                                      View Details ➔
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           ) : activeTab === "cart" ? (
             /* CART VIEW */
@@ -2436,16 +2991,49 @@ export default function DashboardPage() {
                             />
                           </div>
 
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          <div className="space-y-2.5">
                             <div>
-                              <label className="block text-stone-700 font-bold mb-1">Preferred Date</label>
+                              <div className="flex items-center justify-between mb-1">
+                                <label className="block text-stone-700 font-bold">Delivery Date</label>
+                                <span className="text-[10px] text-orange-700 font-bold bg-orange-100 px-2 py-0.5 rounded-full border border-orange-200">
+                                  📅 Sunday Deliveries Only
+                                </span>
+                              </div>
                               <input
                                 type="date"
+                                min={getNextSundayLocalDateString()}
                                 value={cartDeliveryDate}
-                                onChange={(e) => setCartDeliveryDate(e.target.value)}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  if (!isSundayDate(val)) {
+                                    showToast("error", "Deliveries are made on Sundays only. Picked the nearest Sunday for you.");
+                                    setCartDeliveryDate(getNextSundayLocalDateString(new Date(val)));
+                                  } else {
+                                    setCartDeliveryDate(val);
+                                  }
+                                }}
                                 className="w-full px-3 py-2 rounded-xl bg-orange-50/40 border border-orange-200 text-stone-900 focus:outline-none focus:border-orange-500 font-medium text-xs cursor-pointer"
                               />
+
+                              {/* Quick Sunday Buttons */}
+                              <div className="flex flex-wrap gap-1.5 mt-2">
+                                {getUpcomingSundays(4).map((sun) => (
+                                  <button
+                                    key={sun}
+                                    type="button"
+                                    onClick={() => setCartDeliveryDate(sun)}
+                                    className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                                      cartDeliveryDate === sun
+                                        ? "bg-orange-600 text-white border-orange-600 shadow-sm"
+                                        : "bg-orange-50/70 hover:bg-orange-100 text-orange-900 border-orange-200"
+                                    }`}
+                                  >
+                                    🗓️ {formatSundayDateDisplay(sun)}
+                                  </button>
+                                ))}
+                              </div>
                             </div>
+
                             <div>
                               <label className="block text-stone-700 font-bold mb-1">Preferred Time</label>
                               <input
@@ -2554,6 +3142,37 @@ export default function DashboardPage() {
           ) : activeTab === "orders" ? (
             /* ORDERS MANAGEMENT VIEW */
             <div className="space-y-6 animate-in fade-in duration-200">
+              {/* ADMIN KITCHEN PRODUCTION QUICK CALLOUT */}
+              {isAdmin && (
+                <div className="bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-600/10 border border-orange-200/80 rounded-3xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-11 h-11 rounded-2xl bg-orange-600 text-white flex items-center justify-center text-xl shadow-lg shadow-orange-600/20 shrink-0">
+                      👩‍🍳
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-sm font-black text-stone-900">
+                          Bakery Production Summary
+                        </h4>
+                        <span className="px-2.5 py-0.5 rounded-full bg-orange-600 text-white text-[10px] font-bold">
+                          {bakingProductionData.totalToBakeCount} Items Needed
+                        </span>
+                      </div>
+                      <p className="text-xs text-stone-600 font-medium mt-0.5">
+                        🍌 {bakingProductionData.bananaBreads} Banana Breads • 🍪 {bakingProductionData.cookies} Cookies • 🍫 {bakingProductionData.crinkles} Crinkles • 🧀 {bakingProductionData.cheesecakesTotal} Cheesecakes
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setActiveTab("baking")}
+                    className="px-4 py-2.5 rounded-xl bg-stone-900 hover:bg-orange-600 text-white text-xs font-bold transition cursor-pointer shrink-0 shadow-sm flex items-center gap-2 group"
+                  >
+                    <span>View Full Baking Schedule</span>
+                    <span className="group-hover:translate-x-1 transition-transform">➔</span>
+                  </button>
+                </div>
+              )}
+
               {/* ORDERS TABLE VIEW */}
               {loadingOrders ? (
                 <div className="text-center py-16 bg-white border border-orange-200 rounded-3xl">

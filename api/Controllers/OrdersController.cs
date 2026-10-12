@@ -65,6 +65,11 @@ namespace API.Controllers
 
             if (!string.IsNullOrWhiteSpace(request?.DeliveryDate))
             {
+                var datePart = request.DeliveryDate.Trim().Split(' ')[0];
+                if (System.DateTime.TryParse(datePart, out var parsedDate) && parsedDate.DayOfWeek != System.DayOfWeek.Sunday)
+                {
+                    return BadRequest(new { message = "Deliveries are only available on Sundays. Please select a Sunday." });
+                }
                 await _ordersRepository.UpdateDeliveryDateAsync(orderId, request.DeliveryDate);
             }
 
@@ -102,6 +107,11 @@ namespace API.Controllers
 
             if (!string.IsNullOrWhiteSpace(request?.DeliveryDate))
             {
+                var datePart = request.DeliveryDate.Trim().Split(' ')[0];
+                if (System.DateTime.TryParse(datePart, out var parsedDate) && parsedDate.DayOfWeek != System.DayOfWeek.Sunday)
+                {
+                    return BadRequest(new { message = "Deliveries are only available on Sundays. Please select a Sunday." });
+                }
                 await _ordersRepository.UpdateDeliveryDateAsync(orderId, request.DeliveryDate);
             }
 

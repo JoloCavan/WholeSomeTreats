@@ -2953,10 +2953,10 @@ export default function DashboardPage() {
                             u.full_name.toLowerCase().includes(searchUser.toLowerCase()) ||
                             u.phone_number.includes(searchUser)
                           )
-                          .map((u) => (
+                          .map((u, index) => (
                             <tr key={u.id} className="hover:bg-orange-50/50 transition">
-                              <td className="py-3.5 font-bold text-orange-600 font-mono">
-                                #{u.id}
+                              <td className="py-3.5 font-bold text-orange-600 font-mono" title={`Database ID: #${u.id}`}>
+                                #{index + 1}
                               </td>
                               <td className="py-3.5 font-bold text-stone-900">
                                 {u.full_name || u.username}

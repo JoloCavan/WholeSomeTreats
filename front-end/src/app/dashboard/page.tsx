@@ -3041,7 +3041,6 @@ export default function DashboardPage() {
                           <th className="pb-3">Customer Name</th>
                           <th className="pb-3">Username</th>
                           <th className="pb-3">Phone Number</th>
-                          <th className="pb-3">Address</th>
                           <th className="pb-3">Role</th>
                           <th className="pb-3 text-right">Actions</th>
                         </tr>
@@ -3067,9 +3066,6 @@ export default function DashboardPage() {
                               </td>
                               <td className="py-3.5 text-stone-600 font-mono">
                                 {u.phone_number || "N/A"}
-                              </td>
-                              <td className="py-3.5 text-stone-600 truncate max-w-xs">
-                                {u.address || "N/A"}
                               </td>
                               <td className="py-3.5">
                                 <select

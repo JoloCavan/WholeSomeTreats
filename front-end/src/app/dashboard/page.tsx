@@ -495,6 +495,8 @@ export default function DashboardPage() {
   const [orderToDecline, setOrderToDecline] = useState<Order | null>(null);
   const [declineReasonInput, setDeclineReasonInput] = useState("");
   const [isSubmittingDecline, setIsSubmittingDecline] = useState(false);
+  const [orderToCancel, setOrderToCancel] = useState<Order | null>(null);
+  const [isCancellingOrder, setIsCancellingOrder] = useState(false);
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [checkoutProductId, setCheckoutProductId] = useState<number>(1);
   const [checkoutQuantity, setCheckoutQuantity] = useState<number>(1);
@@ -886,22 +888,33 @@ export default function DashboardPage() {
   };
 
   // 3. PUT /api/orders/cancel/{orderId}
-  const handleCancelOrder = async (orderId: number) => {
+  const handleCancelOrder = async (orderIdToCancel?: number) => {
+    const targetId = orderIdToCancel || orderToCancel?.id;
+    if (!targetId) return;
+    setIsCancellingOrder(true);
     try {
-      await fetch(`/api/orders/cancel/${orderId}`, {
+      const res = await fetch(`/api/orders/cancel/${targetId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
       });
+      if (res.ok) {
+        showToast("success", `Order #${targetId} cancelled.`);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        showToast("error", data?.message || "Could not cancel order.");
+      }
     } catch (err) {
       console.log("PUT /api/orders/cancel notice:", err);
     }
 
     const updated = orders.map((o) =>
-      o.id === orderId ? { ...o, status: "Cancelled" } : o
+      o.id === targetId ? { ...o, status: "Cancelled" } : o
     );
     setOrders(updated);
     saveStoredOrders(updated);
-    showToast("success", `Order #${orderId} cancelled.`);
+    setIsCancellingOrder(false);
+    setOrderToCancel(null);
+    await fetchOrders();
   };
 
   // 5. DELETE /api/orders/admin/delete/{orderId}
@@ -2503,6 +2516,7 @@ export default function DashboardPage() {
                                         <option value="Delivering">Delivering</option>
                                         <option value="Completed">Completed</option>
                                         <option value="Declined">Declined</option>
+                                        <option value="Cancelled">Cancelled</option>
                                       </select>
                                     )}
                                   </div>
@@ -2516,15 +2530,25 @@ export default function DashboardPage() {
                                           ? "bg-blue-50 text-blue-700 border-blue-300"
                                           : o.status === "Approved"
                                           ? "bg-teal-50 text-teal-800 border-teal-300"
-                                          : o.status === "Declined"
+                                          : o.status === "Processing"
+                                          ? "bg-amber-50 text-amber-800 border-amber-300"
+                                          : o.status === "Declined" || o.status === "Cancelled"
                                           ? "bg-rose-50 text-rose-700 border-rose-300"
-                                          : "bg-amber-50 text-amber-800 border-amber-300"
+                                          : "bg-stone-50 text-stone-800 border-stone-300"
                                       }`}
                                     >
                                       {o.status === "Pending"
                                         ? "⏳ Pending Approval"
                                         : o.status === "Approved"
                                         ? "✓ Approved"
+                                        : o.status === "Processing"
+                                        ? "⚙️ Processing"
+                                        : o.status === "Delivering"
+                                        ? "🚚 Delivering"
+                                        : o.status === "Completed"
+                                        ? "✅ Completed"
+                                        : o.status === "Cancelled"
+                                        ? "✕ Cancelled"
                                         : o.status === "Declined"
                                         ? "✕ Declined"
                                         : o.status}
@@ -2589,6 +2613,15 @@ export default function DashboardPage() {
                                     >
                                       Details
                                     </button>
+                                    {!isAdmin && (o.status === "Processing" || o.status === "Approved") && (
+                                      <button
+                                        onClick={() => setOrderToCancel(o)}
+                                        className="px-2.5 py-1.5 rounded-lg bg-rose-50 text-rose-700 font-bold hover:bg-rose-100 border border-rose-200 cursor-pointer transition shadow-sm"
+                                        title="Cancel order while still in processing"
+                                      >
+                                        ✕ Cancel
+                                      </button>
+                                    )}
                                     {isAdmin && (
                                       <button
                                         onClick={() => setOrderToDelete(o)}
@@ -3643,7 +3676,22 @@ export default function DashboardPage() {
               })()}
             </div>
 
-            <div className="pt-3 border-t border-stone-100 text-right">
+            <div className="pt-3 border-t border-stone-100 flex items-center justify-between">
+              <div>
+                {!isAdmin && (selectedOrderDetails.status === "Processing" || selectedOrderDetails.status === "Approved") && (
+                  <button
+                    onClick={() => {
+                      const toCancel = selectedOrderDetails;
+                      setSelectedOrderDetails(null);
+                      setOrderToCancel(toCancel);
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs border border-rose-200 transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+                  >
+                    <span>✕</span>
+                    <span>Cancel Order</span>
+                  </button>
+                )}
+              </div>
               <button
                 onClick={() => setSelectedOrderDetails(null)}
                 className="px-5 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs shadow-md shadow-orange-600/30 cursor-pointer"
@@ -3914,6 +3962,38 @@ export default function DashboardPage() {
                 className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-md shadow-rose-600/30 cursor-pointer"
               >
                 Delete Order
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CANCEL ORDER MODAL (PUT /api/orders/cancel/{id}) */}
+      {orderToCancel && (
+        <div className="fixed inset-0 bg-stone-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-rose-200 rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-in fade-in zoom-in duration-200 text-center">
+            <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-3 text-xl font-bold">
+              ✕
+            </div>
+            <h3 className="text-base font-black text-stone-900 mb-1">Cancel Order #{orderToCancel.id}?</h3>
+            <p className="text-xs text-stone-500 mb-4 font-medium">
+              Are you sure you want to cancel this order? Once cancelled, the bakery will stop processing it.
+            </p>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setOrderToCancel(null)}
+                disabled={isCancellingOrder}
+                className="flex-1 py-2.5 rounded-xl border border-stone-300 text-stone-700 text-xs font-bold cursor-pointer hover:bg-stone-50 transition"
+              >
+                Keep Order
+              </button>
+              <button
+                onClick={() => handleCancelOrder()}
+                disabled={isCancellingOrder}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-md shadow-rose-600/30 cursor-pointer transition disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                {isCancellingOrder ? "Cancelling..." : "Confirm Cancel"}
               </button>
             </div>
           </div>

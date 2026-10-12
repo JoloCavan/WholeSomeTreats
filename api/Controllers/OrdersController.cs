@@ -128,11 +128,10 @@ namespace API.Controllers
             bool success = await _ordersRepository.CancelOrderAsync(orderId, userId);
             if (!success)
             {
-                // Force update status to Cancelled if not pending
-                await _ordersRepository.UpdateOrderStatusAsync(orderId, "Cancelled");
+                return BadRequest(new { message = "Cannot cancel order. Orders can only be cancelled while in Processing or Approved status." });
             }
 
-            return Ok(new { message = "Order cancelled successfully." });
+            return Ok(new { message = "Order cancelled successfully.", orderId = orderId });
         }
 
         [HttpGet("admin/all")]

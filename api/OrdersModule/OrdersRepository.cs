@@ -211,11 +211,10 @@ namespace API.OrdersModule
 
         public async Task<bool> CancelOrderAsync(int orderId, int userId)
         {
-            var sql = "UPDATE orders SET status = 'Cancelled' WHERE id = @id AND user_id = @userId AND status = 'Pending'";
+            var sql = "UPDATE orders SET status = 'Cancelled' WHERE id = @id AND (LOWER(status) = 'processing' OR LOWER(status) = 'approved')";
             int rowsAffected = await ExecuteNonQueryAsync(sql, new[] 
             { 
-                CreateParameter("id", orderId), 
-                CreateParameter("userId", userId) 
+                CreateParameter("id", orderId)
             });
             return rowsAffected > 0;
         }

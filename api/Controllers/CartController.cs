@@ -13,10 +13,12 @@ namespace API.Controllers
     public class CartController : ControllerBase
     {
         private readonly ICartRepository _cartRepository;
+        private readonly API.ProductsModule.IProductsRepository _productsRepository;
 
-        public CartController(ICartRepository cartRepository)
+        public CartController(ICartRepository cartRepository, API.ProductsModule.IProductsRepository productsRepository)
         {
             _cartRepository = cartRepository;
+            _productsRepository = productsRepository;
         }
 
         private int GetCurrentUserId(int? fallbackUserId = null)
@@ -42,6 +44,21 @@ namespace API.Controllers
             if (request == null || request.ProductId <= 0 || request.Quantity <= 0)
             {
                 return BadRequest(new { message = "Invalid product details." });
+            }
+
+            var product = await _productsRepository.GetByIdAsync(request.ProductId);
+            if (product != null && !product.IsAvailable)
+            {
+                return BadRequest(new { message = $"\"{product.Name}\" is currently unavailable and cannot be added to the cart." });
+            }
+
+            if (request.VariationId.HasValue && request.VariationId.Value > 0)
+            {
+                var variation = await _productsRepository.GetVariationByIdAsync(request.VariationId.Value);
+                if (variation != null && !variation.IsAvailable)
+                {
+                    return BadRequest(new { message = $"The selected flavor ({variation.FlavorName}) is currently unavailable and cannot be added to the cart." });
+                }
             }
 
             await _cartRepository.AddToCartAsync(targetUserId, request.ProductId, request.VariationId, request.Quantity);

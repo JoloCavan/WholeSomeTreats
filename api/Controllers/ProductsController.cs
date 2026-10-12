@@ -58,5 +58,19 @@ namespace API.Controllers
             await _productsRepository.DeleteProductAsync(id);
             return Ok(new { message = "Product deleted successfully." });
         }
+
+        [HttpPut("admin/{id}/toggle-availability")]
+        public async Task<IActionResult> ToggleProductAvailability(int id)
+        {
+            bool isAvailable = await _productsRepository.ToggleProductAvailabilityAsync(id);
+            return Ok(new { message = $"Product availability updated to {(isAvailable ? "In Stock" : "Unavailable")}.", is_available = isAvailable });
+        }
+
+        [HttpPut("admin/variations/{variationId}/toggle-availability")]
+        public async Task<IActionResult> ToggleVariationAvailability(int variationId)
+        {
+            bool isAvailable = await _productsRepository.ToggleVariationAvailabilityAsync(variationId);
+            return Ok(new { message = $"Variation availability updated to {(isAvailable ? "In Stock" : "Unavailable")}.", is_available = isAvailable });
+        }
     }
 }

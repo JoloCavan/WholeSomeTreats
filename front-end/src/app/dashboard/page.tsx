@@ -17,6 +17,7 @@ export interface ProductVariation {
   product_id: number;
   flavor_name: string;
   price: number;
+  is_available?: boolean;
 }
 
 export interface OrderItem {
@@ -245,16 +246,16 @@ const saveStoredProducts = (items: Product[]) => {
 
 export const defaultCheesecakeVariations: Record<number, ProductVariation[]> = {
   4: [
-    { id: 1, product_id: 4, flavor_name: "Original", price: 180.0 },
-    { id: 2, product_id: 4, flavor_name: "Strawberry", price: 200.0 },
-    { id: 3, product_id: 4, flavor_name: "Blueberry", price: 200.0 },
-    { id: 4, product_id: 4, flavor_name: "Mango", price: 200.0 },
+    { id: 1, product_id: 4, flavor_name: "Original", price: 180.0, is_available: true },
+    { id: 2, product_id: 4, flavor_name: "Strawberry", price: 200.0, is_available: true },
+    { id: 3, product_id: 4, flavor_name: "Blueberry", price: 200.0, is_available: true },
+    { id: 4, product_id: 4, flavor_name: "Mango", price: 200.0, is_available: true },
   ],
   5: [
-    { id: 5, product_id: 5, flavor_name: "Original", price: 220.0 },
-    { id: 6, product_id: 5, flavor_name: "Strawberry", price: 240.0 },
-    { id: 7, product_id: 5, flavor_name: "Blueberry", price: 240.0 },
-    { id: 8, product_id: 5, flavor_name: "Mango", price: 240.0 },
+    { id: 5, product_id: 5, flavor_name: "Original", price: 220.0, is_available: true },
+    { id: 6, product_id: 5, flavor_name: "Strawberry", price: 240.0, is_available: true },
+    { id: 7, product_id: 5, flavor_name: "Blueberry", price: 240.0, is_available: true },
+    { id: 8, product_id: 5, flavor_name: "Mango", price: 240.0, is_available: true },
   ],
 };
 
@@ -664,6 +665,24 @@ export default function DashboardPage() {
 
   const handleCheckoutCart = async () => {
     if (cart.length === 0) return;
+
+    // Guard: check if any cart items are unavailable
+    const unavailableCartItems = cart.filter((item) => {
+      const prod = products.find((p) => p.id === item.product_id);
+      if (prod && !prod.is_available) return true;
+      if (item.variation_id) {
+        const prodVars = getStoredVariations(item.product_id);
+        const v = prodVars.find((pv) => pv.id === item.variation_id);
+        if (v && v.is_available === false) return true;
+      }
+      return false;
+    });
+
+    if (unavailableCartItems.length > 0) {
+      showToast("error", `Cannot checkout: "${unavailableCartItems[0].product_name}" is currently unavailable. Please remove it from your cart.`);
+      return;
+    }
+
     setIsCheckingOutCart(true);
 
     const token = localStorage.getItem("token");
@@ -2298,24 +2317,49 @@ export default function DashboardPage() {
                         </span>
                       </div>
                       <div className="divide-y divide-stone-100">
-                        {cart.map((item) => (
-                          <div key={item.id} className="p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4 hover:bg-orange-50/30 transition">
-                            <div className="flex items-center gap-4 w-full sm:w-auto">
-                              <div className="w-16 h-16 rounded-2xl bg-orange-100 border border-orange-200 overflow-hidden shrink-0 flex items-center justify-center">
-                                {item.image_url ? (
-                                  <img src={item.image_url} alt={item.product_name} className="w-full h-full object-cover" />
-                                ) : (
-                                  <span className="text-2xl">🍰</span>
-                                )}
+                        {cart.map((item) => {
+                          const itemProduct = products.find((p) => p.id === item.product_id);
+                          const itemProductVars = getStoredVariations(item.product_id);
+                          const itemVar = item.variation_id ? itemProductVars.find((v) => v.id === item.variation_id) : null;
+                          const isItemUnavailable = (itemProduct && !itemProduct.is_available) || (itemVar && itemVar.is_available === false);
+
+                          return (
+                            <div key={item.id} className={`p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4 transition ${isItemUnavailable ? "bg-rose-50/60 border-l-4 border-rose-500" : "hover:bg-orange-50/30"}`}>
+                              <div className="flex items-center gap-4 w-full sm:w-auto">
+                                <div className="w-16 h-16 rounded-2xl bg-orange-100 border border-orange-200 overflow-hidden shrink-0 flex items-center justify-center relative">
+                                  {item.image_url ? (
+                                    <img src={item.image_url} alt={item.product_name} className={`w-full h-full object-cover ${isItemUnavailable ? "opacity-50 grayscale" : ""}`} />
+                                  ) : (
+                                    <span className="text-2xl">🍰</span>
+                                  )}
+                                  {isItemUnavailable && (
+                                    <span className="absolute inset-0 bg-rose-900/40 flex items-center justify-center text-white text-[9px] font-bold">
+                                      Unavailable
+                                    </span>
+                                  )}
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <h4 className="font-bold text-stone-900 text-sm line-clamp-1">{item.product_name}</h4>
+                                    {isItemUnavailable && (
+                                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-600 text-white shadow-xs">
+                                        Unavailable
+                                      </span>
+                                    )}
+                                  </div>
+                                  {item.flavor_name && (
+                                    <p className="text-xs text-orange-600 font-semibold mt-0.5">
+                                      Flavor: {item.flavor_name} {itemVar && itemVar.is_available === false ? "(Unavailable)" : ""}
+                                    </p>
+                                  )}
+                                  <p className="text-xs text-stone-400 mt-0.5">₱{item.price.toFixed(2)} / item</p>
+                                  {isItemUnavailable && (
+                                    <p className="text-[11px] text-rose-600 font-bold mt-1">
+                                      ⚠️ This item is currently unavailable. Please remove it to proceed with checkout.
+                                    </p>
+                                  )}
+                                </div>
                               </div>
-                              <div>
-                                <h4 className="font-bold text-stone-900 text-sm line-clamp-1">{item.product_name}</h4>
-                                {item.flavor_name && (
-                                  <p className="text-xs text-orange-600 font-semibold mt-0.5">Flavor: {item.flavor_name}</p>
-                                )}
-                                <p className="text-xs text-stone-400 mt-0.5">₱{item.price.toFixed(2)} / item</p>
-                              </div>
-                            </div>
 
                             <div className="flex items-center justify-between sm:justify-end gap-6 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-stone-100">
                               {/* QUANTITY CONTROLS */}
@@ -2353,7 +2397,8 @@ export default function DashboardPage() {
                               </button>
                             </div>
                           </div>
-                        ))}
+                        );
+                      })}
                       </div>
                     </div>
                   </div>
@@ -2449,23 +2494,58 @@ export default function DashboardPage() {
                         </div>
                       </div>
 
-                      <button
-                        onClick={handleCheckoutCart}
-                        disabled={isCheckingOutCart}
-                        className="w-full py-3.5 rounded-2xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs shadow-xl shadow-orange-600/30 transition cursor-pointer flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50"
-                      >
-                        {isCheckingOutCart ? (
+                      {(() => {
+                        const hasUnavailableCartItems = cart.some((item) => {
+                          const prod = products.find((p) => p.id === item.product_id);
+                          if (prod && !prod.is_available) return true;
+                          if (item.variation_id) {
+                            const prodVars = getStoredVariations(item.product_id);
+                            const v = prodVars.find((pv) => pv.id === item.variation_id);
+                            if (v && v.is_available === false) return true;
+                          }
+                          return false;
+                        });
+
+                        return (
                           <>
-                            <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
-                            <span>Processing Order...</span>
+                            {hasUnavailableCartItems && (
+                              <div className="p-3 bg-rose-50 border border-rose-200 rounded-2xl text-rose-800 text-xs font-bold space-y-1">
+                                <p>⚠️ Unavailable Items in Cart</p>
+                                <p className="text-[11px] font-normal text-rose-700">
+                                  Some items in your cart are currently marked unavailable. Please remove them before proceeding to checkout.
+                                </p>
+                              </div>
+                            )}
+
+                            <button
+                              onClick={handleCheckoutCart}
+                              disabled={isCheckingOutCart || hasUnavailableCartItems}
+                              className={`w-full py-3.5 rounded-2xl font-bold text-xs shadow-xl transition flex items-center justify-center gap-2 ${
+                                hasUnavailableCartItems
+                                  ? "bg-stone-300 text-stone-500 cursor-not-allowed shadow-none"
+                                  : "bg-orange-600 hover:bg-orange-500 text-white shadow-orange-600/30 cursor-pointer active:scale-95"
+                              }`}
+                            >
+                              {isCheckingOutCart ? (
+                                <>
+                                  <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                                  <span>Processing Order...</span>
+                                </>
+                              ) : hasUnavailableCartItems ? (
+                                <>
+                                  <span>🚫</span>
+                                  <span>Remove Unavailable Items to Checkout</span>
+                                </>
+                              ) : (
+                                <>
+                                  <span>🛍️</span>
+                                  <span>Proceed to Checkout</span>
+                                </>
+                              )}
+                            </button>
                           </>
-                        ) : (
-                          <>
-                            <span>🛍️</span>
-                            <span>Proceed to Checkout</span>
-                          </>
-                        )}
-                      </button>
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>

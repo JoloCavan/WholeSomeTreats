@@ -20,14 +20,14 @@ namespace API.ProductsModule
 
         private static readonly List<ProductVariation> FallbackVariations = new()
         {
-            new ProductVariation { Id = 1, ProductId = 4, FlavorName = "Original", Price = 180.00m },
-            new ProductVariation { Id = 2, ProductId = 4, FlavorName = "Strawberry", Price = 200.00m },
-            new ProductVariation { Id = 3, ProductId = 4, FlavorName = "Blueberry", Price = 200.00m },
-            new ProductVariation { Id = 4, ProductId = 4, FlavorName = "Mango", Price = 200.00m },
-            new ProductVariation { Id = 5, ProductId = 5, FlavorName = "Original", Price = 220.00m },
-            new ProductVariation { Id = 6, ProductId = 5, FlavorName = "Strawberry", Price = 240.00m },
-            new ProductVariation { Id = 7, ProductId = 5, FlavorName = "Blueberry", Price = 240.00m },
-            new ProductVariation { Id = 8, ProductId = 5, FlavorName = "Mango", Price = 240.00m }
+            new ProductVariation { Id = 1, ProductId = 4, FlavorName = "Original", Price = 180.00m, IsAvailable = true },
+            new ProductVariation { Id = 2, ProductId = 4, FlavorName = "Strawberry", Price = 200.00m, IsAvailable = true },
+            new ProductVariation { Id = 3, ProductId = 4, FlavorName = "Blueberry", Price = 200.00m, IsAvailable = true },
+            new ProductVariation { Id = 4, ProductId = 4, FlavorName = "Mango", Price = 200.00m, IsAvailable = true },
+            new ProductVariation { Id = 5, ProductId = 5, FlavorName = "Original", Price = 220.00m, IsAvailable = true },
+            new ProductVariation { Id = 6, ProductId = 5, FlavorName = "Strawberry", Price = 240.00m, IsAvailable = true },
+            new ProductVariation { Id = 7, ProductId = 5, FlavorName = "Blueberry", Price = 240.00m, IsAvailable = true },
+            new ProductVariation { Id = 8, ProductId = 5, FlavorName = "Mango", Price = 240.00m, IsAvailable = true }
         };
 
         public ProductsRepository(MyCon dbConnection) : base(dbConnection) { }
@@ -47,12 +47,24 @@ namespace API.ProductsModule
 
         private ProductVariation MapReaderToVariation(DbDataReader reader)
         {
+            bool isAvailable = true;
+            try
+            {
+                int ord = reader.GetOrdinal("is_available");
+                if (ord >= 0 && !reader.IsDBNull(ord))
+                {
+                    isAvailable = reader.GetBoolean(ord);
+                }
+            }
+            catch {}
+
             return new ProductVariation
             {
                 Id = reader.GetInt32(reader.GetOrdinal("id")),
                 ProductId = reader.GetInt32(reader.GetOrdinal("product_id")),
                 FlavorName = reader.GetString(reader.GetOrdinal("flavor_name")),
-                Price = reader.GetDecimal(reader.GetOrdinal("price"))
+                Price = reader.GetDecimal(reader.GetOrdinal("price")),
+                IsAvailable = isAvailable
             };
         }
 
@@ -187,6 +199,110 @@ namespace API.ProductsModule
             }
 
             FallbackProducts.RemoveAll(p => p.Id == productId);
+        }
+
+        public async Task<Product?> GetByIdAsync(int id)
+        {
+            try
+            {
+                var list = await ExecuteReaderToListAsync("SELECT * FROM products WHERE id = @id", MapReaderToProduct, new[] { CreateParameter("id", id) });
+                if (list.Count > 0) return list[0];
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"⚠️ PostgreSQL GetByIdAsync fallback: {ex.Message}");
+            }
+            return FallbackProducts.FirstOrDefault(p => p.Id == id);
+        }
+
+        public async Task<ProductVariation?> GetVariationByIdAsync(int variationId)
+        {
+            try
+            {
+                var list = await ExecuteReaderToListAsync("SELECT * FROM product_variations WHERE id = @id", MapReaderToVariation, new[] { CreateParameter("id", variationId) });
+                if (list.Count > 0) return list[0];
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"⚠️ PostgreSQL GetVariationByIdAsync fallback: {ex.Message}");
+            }
+            return FallbackVariations.FirstOrDefault(v => v.Id == variationId);
+        }
+
+        public async Task<bool> ToggleProductAvailabilityAsync(int productId)
+        {
+            bool newStatus = false;
+            try
+            {
+                await using var connection = _db.GetConnection();
+                await connection.OpenAsync();
+
+                var getSql = "SELECT is_available FROM products WHERE id = @id";
+                await using var getCmd = connection.CreateCommand();
+                getCmd.CommandText = getSql;
+                getCmd.Parameters.Add(CreateParameter("id", productId));
+                var current = await getCmd.ExecuteScalarAsync();
+                bool currentStatus = current != null && current != DBNull.Value ? Convert.ToBoolean(current) : true;
+                newStatus = !currentStatus;
+
+                var updateSql = "UPDATE products SET is_available = @status WHERE id = @id";
+                await using var updateCmd = connection.CreateCommand();
+                updateCmd.CommandText = updateSql;
+                updateCmd.Parameters.Add(CreateParameter("status", newStatus));
+                updateCmd.Parameters.Add(CreateParameter("id", productId));
+                await updateCmd.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"⚠️ PostgreSQL ToggleProductAvailabilityAsync notice: {ex.Message}");
+            }
+
+            var fallback = FallbackProducts.FirstOrDefault(p => p.Id == productId);
+            if (fallback != null)
+            {
+                fallback.IsAvailable = !fallback.IsAvailable;
+                newStatus = fallback.IsAvailable;
+            }
+
+            return newStatus;
+        }
+
+        public async Task<bool> ToggleVariationAvailabilityAsync(int variationId)
+        {
+            bool newStatus = false;
+            try
+            {
+                await using var connection = _db.GetConnection();
+                await connection.OpenAsync();
+
+                var getSql = "SELECT is_available FROM product_variations WHERE id = @id";
+                await using var getCmd = connection.CreateCommand();
+                getCmd.CommandText = getSql;
+                getCmd.Parameters.Add(CreateParameter("id", variationId));
+                var current = await getCmd.ExecuteScalarAsync();
+                bool currentStatus = current != null && current != DBNull.Value ? Convert.ToBoolean(current) : true;
+                newStatus = !currentStatus;
+
+                var updateSql = "UPDATE product_variations SET is_available = @status WHERE id = @id";
+                await using var updateCmd = connection.CreateCommand();
+                updateCmd.CommandText = updateSql;
+                updateCmd.Parameters.Add(CreateParameter("status", newStatus));
+                updateCmd.Parameters.Add(CreateParameter("id", variationId));
+                await updateCmd.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"⚠️ PostgreSQL ToggleVariationAvailabilityAsync notice: {ex.Message}");
+            }
+
+            var fallback = FallbackVariations.FirstOrDefault(v => v.Id == variationId);
+            if (fallback != null)
+            {
+                fallback.IsAvailable = !fallback.IsAvailable;
+                newStatus = fallback.IsAvailable;
+            }
+
+            return newStatus;
         }
     }
 }

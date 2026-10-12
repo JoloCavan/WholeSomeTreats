@@ -17,6 +17,7 @@ export interface ProductVariation {
   product_id: number;
   flavor_name: string;
   price: number;
+  is_available?: boolean;
 }
 
 const initialProducts: Product[] = [
@@ -112,16 +113,16 @@ const saveStoredProducts = (items: Product[]) => {
 
 export const defaultCheesecakeVariations: Record<number, ProductVariation[]> = {
   4: [
-    { id: 1, product_id: 4, flavor_name: "Original", price: 180.0 },
-    { id: 2, product_id: 4, flavor_name: "Strawberry", price: 200.0 },
-    { id: 3, product_id: 4, flavor_name: "Blueberry", price: 200.0 },
-    { id: 4, product_id: 4, flavor_name: "Mango", price: 200.0 },
+    { id: 1, product_id: 4, flavor_name: "Original", price: 180.0, is_available: true },
+    { id: 2, product_id: 4, flavor_name: "Strawberry", price: 200.0, is_available: true },
+    { id: 3, product_id: 4, flavor_name: "Blueberry", price: 200.0, is_available: true },
+    { id: 4, product_id: 4, flavor_name: "Mango", price: 200.0, is_available: true },
   ],
   5: [
-    { id: 5, product_id: 5, flavor_name: "Original", price: 220.0 },
-    { id: 6, product_id: 5, flavor_name: "Strawberry", price: 240.0 },
-    { id: 7, product_id: 5, flavor_name: "Blueberry", price: 240.0 },
-    { id: 8, product_id: 5, flavor_name: "Mango", price: 240.0 },
+    { id: 5, product_id: 5, flavor_name: "Original", price: 220.0, is_available: true },
+    { id: 6, product_id: 5, flavor_name: "Strawberry", price: 240.0, is_available: true },
+    { id: 7, product_id: 5, flavor_name: "Blueberry", price: 240.0, is_available: true },
+    { id: 8, product_id: 5, flavor_name: "Mango", price: 240.0, is_available: true },
   ],
 };
 
@@ -259,8 +260,6 @@ export default function ProductsPage() {
     const storedVars = getStoredVariations(product.id);
     if (storedVars.length > 0) {
       setVariations(storedVars);
-      setLoadingVariations(false);
-      return;
     }
 
     try {
@@ -270,18 +269,86 @@ export default function ProductsPage() {
         if (Array.isArray(data) && data.length > 0) {
           setVariations(data);
           saveStoredVariations(product.id, data);
-        } else {
+        } else if (storedVars.length === 0) {
           setVariations([]);
         }
-      } else {
-        setVariations([]);
       }
     } catch (err) {
       console.error("GET variations error:", err);
-      setVariations([]);
+      if (storedVars.length === 0) setVariations([]);
     } finally {
       setLoadingVariations(false);
     }
+  };
+
+  const handleToggleProductAvailability = async (productId: number) => {
+    const currentList = loadStoredProducts();
+    let newStatus = false;
+    let productName = "";
+    const updated = currentList.map((p) => {
+      if (p.id === productId) {
+        newStatus = !p.is_available;
+        productName = p.name;
+        return { ...p, is_available: newStatus };
+      }
+      return p;
+    });
+
+    setProducts(updated);
+    saveStoredProducts(updated);
+
+    try {
+      const res = await fetch(`/api/products/admin/${productId}/toggle-availability`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: localStorage.getItem("token") ? `Bearer ${localStorage.getItem("token")}` : "",
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        newStatus = data.is_available;
+      }
+    } catch (e) {
+      console.log("Toggle product error:", e);
+    }
+
+    showToast("success", `Product "${productName}" is now ${newStatus ? "Available (In Stock)" : "Unavailable"}.`);
+  };
+
+  const handleToggleVariationAvailability = async (productId: number, variationId: number) => {
+    const currentVars = getStoredVariations(productId);
+    let updatedFlavorName = "";
+    let newStatus = true;
+    const updated = currentVars.map((v) => {
+      if (v.id === variationId) {
+        newStatus = v.is_available === false ? true : false;
+        updatedFlavorName = v.flavor_name;
+        return { ...v, is_available: newStatus };
+      }
+      return v;
+    });
+
+    setVariations(updated);
+    saveStoredVariations(productId, updated);
+
+    try {
+      const res = await fetch(`/api/products/admin/variations/${variationId}/toggle-availability`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: localStorage.getItem("token") ? `Bearer ${localStorage.getItem("token")}` : "",
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        newStatus = data.is_available;
+      }
+    } catch (e) {
+      console.log("Toggle variation error:", e);
+    }
+
+    showToast("success", `Flavor "${updatedFlavorName}" is now ${newStatus ? "Available (In Stock)" : "Unavailable"}.`);
   };
 
   // Open Add Product Form
@@ -338,8 +405,9 @@ export default function ProductsPage() {
     setOrderDeliveryDate(`${year}-${month}-${day}`);
 
     const storedVars = getStoredVariations(product.id);
+    const availableVars = storedVars.filter((v: ProductVariation) => v.is_available !== false);
     if (storedVars.length > 0) {
-      setOrderVariationId(storedVars[0].id);
+      setOrderVariationId(availableVars.length > 0 ? availableVars[0].id : storedVars[0].id);
     } else {
       setOrderVariationId(null);
     }
@@ -347,6 +415,12 @@ export default function ProductsPage() {
 
   const handleConfirmAddToCart = async () => {
     if (!selectedProductForOrder) return;
+
+    if (!selectedProductForOrder.is_available) {
+      showToast("error", `"${selectedProductForOrder.name}" is currently unavailable and cannot be added to cart.`);
+      return;
+    }
+
     setIsSubmittingOrder(true);
 
     const token = localStorage.getItem("token");
@@ -356,6 +430,11 @@ export default function ProductsPage() {
     if (orderVariationId !== null && storedVars.length > 0) {
       const foundVar = storedVars.find((v) => v.id === orderVariationId);
       if (foundVar) {
+        if (foundVar.is_available === false) {
+          setIsSubmittingOrder(false);
+          showToast("error", `The flavor "${foundVar.flavor_name}" is currently unavailable and cannot be added to cart.`);
+          return;
+        }
         currentPrice = foundVar.price;
         selectedFlavorName = foundVar.flavor_name;
       }
@@ -661,10 +740,10 @@ export default function ProductsPage() {
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
                     <span
-                      className={`absolute top-3 right-3 px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                      className={`absolute top-3 right-3 px-2.5 py-1 rounded-full text-[10px] font-bold shadow ${
                         p.is_available
-                          ? "bg-emerald-500 text-white shadow"
-                          : "bg-stone-500 text-white"
+                          ? "bg-emerald-500 text-white"
+                          : "bg-rose-600 text-white"
                       }`}
                     >
                       {p.is_available ? "In Stock" : "Unavailable"}
@@ -698,25 +777,53 @@ export default function ProductsPage() {
                   {!isAdmin && (
                     <button
                       onClick={() => handleOpenOrderModal(p)}
-                      className="w-full py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-orange-600/20 active:scale-95"
+                      disabled={!p.is_available}
+                      className={`w-full py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                        p.is_available
+                          ? "bg-orange-600 hover:bg-orange-500 text-white cursor-pointer shadow-md shadow-orange-600/20 active:scale-95"
+                          : "bg-stone-200 text-stone-400 cursor-not-allowed shadow-none"
+                      }`}
                     >
-                      <span>🛒 Add to Cart</span>
+                      {p.is_available ? (
+                        <>
+                          <span>🛒</span>
+                          <span>Add to Cart</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>🚫</span>
+                          <span>Unavailable</span>
+                        </>
+                      )}
                     </button>
                   )}
 
                   {isAdmin && (
-                    <div className="flex items-center gap-2">
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleOpenEditForm(p)}
+                          className="flex-1 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold border border-amber-200 transition cursor-pointer"
+                        >
+                          ✏️ Edit
+                        </button>
+                        <button
+                          onClick={() => setProductToDelete(p)}
+                          className="flex-1 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold border border-rose-200 transition cursor-pointer"
+                        >
+                          🗑️ Delete
+                        </button>
+                      </div>
                       <button
-                        onClick={() => handleOpenEditForm(p)}
-                        className="flex-1 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold border border-amber-200 transition cursor-pointer"
+                        onClick={() => handleToggleProductAvailability(p.id)}
+                        className={`w-full py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                          p.is_available
+                            ? "bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200"
+                            : "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200"
+                        }`}
                       >
-                        ✏️ Edit
-                      </button>
-                      <button
-                        onClick={() => setProductToDelete(p)}
-                        className="flex-1 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold border border-rose-200 transition cursor-pointer"
-                      >
-                        🗑️ Delete
+                        <span>{p.is_available ? "⛔" : "✅"}</span>
+                        <span>{p.is_available ? "Mark Unavailable" : "Mark Available"}</span>
                       </button>
                     </div>
                   )}
@@ -756,19 +863,51 @@ export default function ProductsPage() {
               </p>
             ) : (
               <div className="space-y-2.5">
-                {variations.map((v) => (
-                  <div
-                    key={v.id}
-                    className="flex items-center justify-between p-3 rounded-2xl bg-orange-50/60 border border-orange-100"
-                  >
-                    <div>
-                      <p className="text-xs font-bold text-stone-800">{v.flavor_name}</p>
+                {variations.map((v) => {
+                  const isVarAvail = v.is_available !== false;
+                  return (
+                    <div
+                      key={v.id}
+                      className="flex items-center justify-between p-3 rounded-2xl bg-orange-50/60 border border-orange-100 gap-2"
+                    >
+                      <div>
+                        <p className="text-xs font-bold text-stone-800">{v.flavor_name}</p>
+                        <span
+                          className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full mt-1 ${
+                            isVarAvail
+                              ? "bg-emerald-100 text-emerald-700"
+                              : "bg-rose-100 text-rose-700"
+                          }`}
+                        >
+                          {isVarAvail ? "In Stock" : "Unavailable"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-black text-orange-600">
+                          ₱{v.price.toFixed(2)}
+                        </span>
+                        {isAdmin && selectedProductForVariations && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleToggleVariationAvailability(
+                                selectedProductForVariations.id,
+                                v.id
+                              )
+                            }
+                            className={`px-2 py-1 rounded-xl text-[10px] font-bold border transition cursor-pointer shrink-0 ${
+                              isVarAvail
+                                ? "bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200"
+                                : "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200"
+                            }`}
+                          >
+                            {isVarAvail ? "Mark Unavailable" : "Mark Available"}
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <span className="text-sm font-black text-orange-600">
-                      ₱{v.price.toFixed(2)}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
@@ -1043,22 +1182,43 @@ export default function ProductsPage() {
 
                   <div className="space-y-4 text-xs font-medium">
                     {/* FLAVOR / VARIATION SELECTION (ONLY SHOWN IF PRODUCT HAS AVAILABLE VARIATIONS) */}
-                    {hasVariations && (
-                      <div className="space-y-1.5">
-                        <label className="block text-stone-700 font-bold">Select Flavor / Variation:</label>
-                        <select
-                          value={orderVariationId ?? storedVars[0].id}
-                          onChange={(e) => setOrderVariationId(Number(e.target.value))}
-                          className="w-full px-3.5 py-2.5 rounded-xl border border-orange-200 bg-white text-stone-900 font-bold focus:outline-none focus:border-orange-500 shadow-sm cursor-pointer"
-                        >
-                          {storedVars.map((v: ProductVariation) => (
-                            <option key={v.id} value={v.id}>
-                              {v.flavor_name} — ₱{v.price.toFixed(2)}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
+                    {hasVariations && (() => {
+                      const availableVars = storedVars.filter((v: ProductVariation) => v.is_available !== false);
+                      const allVariationsUnavailable = availableVars.length === 0;
+
+                      return (
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <label className="block text-stone-700 font-bold">Select Flavor / Variation:</label>
+                            {allVariationsUnavailable && (
+                              <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200">
+                                All Flavors Unavailable
+                              </span>
+                            )}
+                          </div>
+                          <select
+                            value={orderVariationId ?? (availableVars[0]?.id || storedVars[0]?.id)}
+                            onChange={(e) => setOrderVariationId(Number(e.target.value))}
+                            disabled={allVariationsUnavailable}
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-orange-200 bg-white text-stone-900 font-bold focus:outline-none focus:border-orange-500 shadow-sm cursor-pointer disabled:bg-stone-100 disabled:text-stone-400"
+                          >
+                            {storedVars.map((v: ProductVariation) => {
+                              const isVarAvail = v.is_available !== false;
+                              return (
+                                <option key={v.id} value={v.id} disabled={!isVarAvail}>
+                                  {v.flavor_name} — ₱{v.price.toFixed(2)} {!isVarAvail ? "(Unavailable)" : ""}
+                                </option>
+                              );
+                            })}
+                          </select>
+                          {allVariationsUnavailable && (
+                            <p className="text-[11px] text-rose-600 font-bold pt-1">
+                              ⚠️ All flavor variations for this item are currently marked unavailable.
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {/* QUANTITY PICKER */}
                     <div className="space-y-1.5">
@@ -1095,23 +1255,41 @@ export default function ProductsPage() {
               >
                 Cancel
               </button>
-              <button
-                onClick={handleConfirmAddToCart}
-                disabled={isSubmittingOrder}
-                className="flex-1 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold shadow-md shadow-orange-600/30 cursor-pointer transition text-xs flex items-center justify-center gap-1.5"
-              >
-                {isSubmittingOrder ? (
-                  <>
-                    <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
-                    <span>Adding to Cart...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>🛒</span>
-                    <span>Add to Cart</span>
-                  </>
-                )}
-              </button>
+              {(() => {
+                const storedVars = selectedProductForOrder ? getStoredVariations(selectedProductForOrder.id) : [];
+                const hasVars = storedVars.length > 0;
+                const hasAnyAvailableVar = !hasVars || storedVars.some((v: ProductVariation) => v.is_available !== false);
+                const isBlocked = !selectedProductForOrder?.is_available || !hasAnyAvailableVar;
+
+                return (
+                  <button
+                    onClick={handleConfirmAddToCart}
+                    disabled={isSubmittingOrder || isBlocked}
+                    className={`flex-1 py-2.5 rounded-xl font-bold transition text-xs flex items-center justify-center gap-1.5 ${
+                      isBlocked
+                        ? "bg-stone-200 text-stone-400 cursor-not-allowed shadow-none"
+                        : "bg-orange-600 hover:bg-orange-500 text-white shadow-md shadow-orange-600/30 cursor-pointer"
+                    }`}
+                  >
+                    {isSubmittingOrder ? (
+                      <>
+                        <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                        <span>Adding to Cart...</span>
+                      </>
+                    ) : isBlocked ? (
+                      <>
+                        <span>🚫</span>
+                        <span>Unavailable</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>🛒</span>
+                        <span>Add to Cart</span>
+                      </>
+                    )}
+                  </button>
+                );
+              })()}
             </div>
           </div>
         </div>

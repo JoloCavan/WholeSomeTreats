@@ -57,6 +57,7 @@ namespace API.Main
                     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_date VARCHAR(50) DEFAULT '';",
                     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_address TEXT DEFAULT '';",
                     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS decline_reason TEXT DEFAULT '';",
+                    "ALTER TABLE product_variations ADD COLUMN IF NOT EXISTS is_available BOOLEAN DEFAULT TRUE;",
                     "UPDATE users SET role = 'customer' WHERE role IS NULL OR role = '';"
                 };
 
@@ -129,7 +130,8 @@ namespace API.Main
                         id SERIAL PRIMARY KEY,
                         product_id INT REFERENCES products(id) ON DELETE CASCADE,
                         flavor_name VARCHAR(255) NOT NULL,
-                        price NUMERIC(10,2) NOT NULL
+                        price NUMERIC(10,2) NOT NULL,
+                        is_available BOOLEAN DEFAULT TRUE
                     );
 
                     CREATE TABLE IF NOT EXISTS cart_items (

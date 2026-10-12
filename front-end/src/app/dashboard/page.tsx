@@ -2623,82 +2623,51 @@ export default function DashboardPage() {
                                 )}
                               </td>
                               <td className="py-3.5 text-right space-x-2">
-                                {isAdmin && o.status === "Pending" ? (
-                                  <div className="inline-flex items-center gap-2">
-                                    <button
-                                      onClick={() => setSelectedOrderDetails(o)}
-                                      className="px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold border border-blue-200 cursor-pointer text-xs transition"
-                                      title="View Order Details"
-                                    >
-                                      Details
-                                    </button>
-                                    <button
-                                      onClick={() => handleApproveOrder(o.id)}
-                                      className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-sm hover:shadow transition flex items-center gap-1 cursor-pointer"
-                                      title="Approve Order"
-                                    >
-                                      ✓ Approve
-                                    </button>
-                                    <button
-                                      onClick={() => {
-                                        setOrderToDecline(o);
-                                        setDeclineReasonInput("");
-                                      }}
-                                      className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-sm hover:shadow transition flex items-center gap-1 cursor-pointer"
-                                      title="Decline Order"
-                                    >
-                                      ✕ Decline
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <>
-                                    {isAdmin && (
-                                      <button
-                                        onClick={() => {
-                                          const targetUser: UserItem = usersList.find(
-                                            (u) =>
-                                              u.id === o.user_id ||
-                                              (u.full_name && u.full_name.toLowerCase() === o.customer_name?.toLowerCase()) ||
-                                              (u.username && u.username.toLowerCase() === o.customer_name?.toLowerCase())
-                                          ) || {
-                                            id: o.user_id || 2,
-                                            username: o.customer_name || `Customer #${o.user_id}`,
-                                            full_name: o.customer_name || `Customer #${o.user_id}`,
-                                            phone_number: "N/A",
-                                            address: o.customer_address || "Olongapo City",
-                                            role: "Customer",
-                                          };
-                                          openDirectMessageWithUser(targetUser);
-                                        }}
-                                        className="px-2.5 py-1.5 rounded-lg bg-orange-100 hover:bg-orange-200 text-orange-800 font-bold cursor-pointer transition"
-                                      >
-                                        Message
-                                      </button>
-                                    )}
-                                    <button
-                                      onClick={() => setSelectedOrderDetails(o)}
-                                      className="px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 font-bold hover:bg-blue-100 cursor-pointer"
-                                    >
-                                      Details
-                                    </button>
-                                    {!isAdmin && (o.status === "Processing" || o.status === "Approved") && (
-                                      <button
-                                        onClick={() => setOrderToCancel(o)}
-                                        className="px-2.5 py-1.5 rounded-lg bg-rose-50 text-rose-700 font-bold hover:bg-rose-100 border border-rose-200 cursor-pointer transition shadow-sm"
-                                        title="Cancel order while still in processing"
-                                      >
-                                        ✕ Cancel
-                                      </button>
-                                    )}
-                                    {isAdmin && (
-                                      <button
-                                        onClick={() => setOrderToDelete(o)}
-                                        className="px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold cursor-pointer shadow-sm transition"
-                                      >
-                                        Delete
-                                      </button>
-                                    )}
-                                  </>
+                                {isAdmin && o.status !== "Pending" && (
+                                  <button
+                                    onClick={() => {
+                                      const targetUser: UserItem = usersList.find(
+                                        (u) =>
+                                          u.id === o.user_id ||
+                                          (u.full_name && u.full_name.toLowerCase() === o.customer_name?.toLowerCase()) ||
+                                          (u.username && u.username.toLowerCase() === o.customer_name?.toLowerCase())
+                                      ) || {
+                                        id: o.user_id || 2,
+                                        username: o.customer_name || `Customer #${o.user_id}`,
+                                        full_name: o.customer_name || `Customer #${o.user_id}`,
+                                        phone_number: "N/A",
+                                        address: o.customer_address || "Olongapo City",
+                                        role: "Customer",
+                                      };
+                                      openDirectMessageWithUser(targetUser);
+                                    }}
+                                    className="px-2.5 py-1.5 rounded-lg bg-orange-100 hover:bg-orange-200 text-orange-800 font-bold cursor-pointer transition"
+                                  >
+                                    Message
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => setSelectedOrderDetails(o)}
+                                  className="px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 font-bold hover:bg-blue-100 cursor-pointer"
+                                >
+                                  Details
+                                </button>
+                                {!isAdmin && (o.status === "Processing" || o.status === "Approved") && (
+                                  <button
+                                    onClick={() => setOrderToCancel(o)}
+                                    className="px-2.5 py-1.5 rounded-lg bg-rose-50 text-rose-700 font-bold hover:bg-rose-100 border border-rose-200 cursor-pointer transition shadow-sm"
+                                    title="Cancel order while still in processing"
+                                  >
+                                    ✕ Cancel
+                                  </button>
+                                )}
+                                {isAdmin && o.status !== "Pending" && (
+                                  <button
+                                    onClick={() => setOrderToDelete(o)}
+                                    className="px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold cursor-pointer shadow-sm transition"
+                                  >
+                                    Delete
+                                  </button>
                                 )}
                               </td>
                             </tr>

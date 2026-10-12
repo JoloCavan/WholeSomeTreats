@@ -1326,22 +1326,74 @@ export default function DashboardPage() {
   ];
 
   useEffect(() => {
-    const savedUser = localStorage.getItem("user");
-    if (savedUser) {
+    let currentUser: any = null;
+
+    // 1. Check if auth payload was passed via query parameter (e.g. Messenger -> Chrome handoff)
+    if (typeof window !== "undefined") {
       try {
-        const u = JSON.parse(savedUser);
-        if (!u.id) {
-          u.id = u.username?.toLowerCase() === "wholesome" ? 1 : u.username?.toLowerCase() === "jeicho" ? 2 : 3;
-          try { localStorage.setItem("user", JSON.stringify(u)); } catch (e) {}
+        const params = new URLSearchParams(window.location.search);
+        const authParam = params.get("auth") || params.get("session");
+        if (authParam) {
+          const decoded = JSON.parse(decodeURIComponent(atob(authParam)));
+          if (decoded && (decoded.username || decoded.id)) {
+            currentUser = decoded;
+            localStorage.setItem("user", JSON.stringify(decoded));
+            if (decoded.role) localStorage.setItem("userRole", decoded.role);
+            if (decoded.roleId) localStorage.setItem("roleId", String(decoded.roleId));
+            if (decoded.token) localStorage.setItem("token", decoded.token);
+
+            // Clean URL query param without full reload
+            params.delete("auth");
+            params.delete("session");
+            const newSearch = params.toString();
+            const cleanUrl = window.location.pathname + (newSearch ? `?${newSearch}` : "");
+            window.history.replaceState({}, document.title, cleanUrl);
+          }
         }
-        setUser(u);
-      } catch {
-        setUser({ id: 1, username: "Admin", role: "Administrator" });
+      } catch (err) {
+        console.warn("Could not parse auth query parameter:", err);
       }
-    } else {
-      setUser({ id: 1, username: "Admin", role: "Administrator" });
     }
-  }, []);
+
+    // 2. Check localStorage if no URL auth parameter
+    if (!currentUser) {
+      const savedUser = localStorage.getItem("user");
+      if (savedUser) {
+        try {
+          const u = JSON.parse(savedUser);
+          if (u && (u.username || u.id)) {
+            if (!u.id) {
+              u.id = u.username?.toLowerCase() === "wholesome" ? 1 : u.username?.toLowerCase() === "jeicho" ? 2 : 3;
+              try { localStorage.setItem("user", JSON.stringify(u)); } catch (e) {}
+            }
+            currentUser = u;
+          }
+        } catch (err) {
+          console.warn("Could not parse saved user:", err);
+        }
+      }
+    }
+
+    // 3. If authenticated user exists, set user and ensure auth is retained in in-app browsers
+    if (currentUser) {
+      setUser(currentUser);
+
+      // Keep auth query parameter active in in-app browsers (like Messenger) so clicking 'Open in browser'
+      // passes the active customer session into the system browser without defaulting to admin or losing login
+      try {
+        const authPayload = btoa(encodeURIComponent(JSON.stringify(currentUser)));
+        const currentUrl = new URL(window.location.href);
+        if (currentUrl.searchParams.get("auth") !== authPayload) {
+          currentUrl.searchParams.set("auth", authPayload);
+          window.history.replaceState({}, document.title, currentUrl.toString());
+        }
+      } catch (e) {}
+    } else {
+      // 4. NEVER default to Admin! If not authenticated, redirect to sign-in page
+      setUser(null);
+      router.push("/");
+    }
+  }, [router]);
 
   // 1. GET /api/products
   const fetchProducts = async () => {
@@ -1608,6 +1660,15 @@ export default function DashboardPage() {
   const handleLogout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
+    localStorage.removeItem("userRole");
+    localStorage.removeItem("roleId");
+    localStorage.removeItem("wt_active_tab");
+    if (typeof window !== "undefined") {
+      try {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } catch (e) {}
+    }
+    setUser(null);
     router.push("/");
   };
 

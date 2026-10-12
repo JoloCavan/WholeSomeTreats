@@ -77,8 +77,10 @@ export default function AuthPage() {
         if (data?.token) localStorage.setItem("token", data.token);
         if (data?.role) localStorage.setItem("userRole", data.role);
         if (data?.roleId) localStorage.setItem("roleId", String(data.roleId));
+        const userObj = data?.user || { username, role: data?.role || "customer", roleId: data?.roleId || 2 };
+        if (data?.token) (userObj as any).token = data.token;
         if (data?.user) localStorage.setItem("user", JSON.stringify(data.user));
-        else localStorage.setItem("user", JSON.stringify({ username, role: data?.role || "customer", roleId: data?.roleId || 2 }));
+        else localStorage.setItem("user", JSON.stringify(userObj));
 
         const userRole = (data?.role || data?.user?.role || "").toLowerCase();
         if (userRole === "admin" || data?.roleId === 1) {
@@ -92,9 +94,15 @@ export default function AuthPage() {
           message: data?.message || "Login successful!",
         });
 
-        // Navigate straight to /dashboard for all users
+        // Encode user for webview-to-browser handoff (e.g. Messenger -> Chrome)
+        let authParam = "";
+        try {
+          authParam = `?auth=${btoa(encodeURIComponent(JSON.stringify(userObj)))}`;
+        } catch (e) {}
+
+        // Navigate straight to /dashboard with session encoded
         setTimeout(() => {
-          router.push("/dashboard");
+          router.push(`/dashboard${authParam}`);
         }, 1000);
       } else {
         const errorData = await res.json().catch(() => ({}));

@@ -41,6 +41,7 @@ export interface Order {
   payment_method: string;
   status: string;
   created_at: string;
+  decline_reason?: string;
   items?: OrderItem[];
 }
 
@@ -449,6 +450,9 @@ export default function DashboardPage() {
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>("All");
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<Order | null>(null);
   const [orderToDelete, setOrderToDelete] = useState<Order | null>(null);
+  const [orderToDecline, setOrderToDecline] = useState<Order | null>(null);
+  const [declineReasonInput, setDeclineReasonInput] = useState("");
+  const [isSubmittingDecline, setIsSubmittingDecline] = useState(false);
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [checkoutProductId, setCheckoutProductId] = useState<number>(1);
   const [checkoutQuantity, setCheckoutQuantity] = useState<number>(1);
@@ -621,7 +625,7 @@ export default function DashboardPage() {
       delivery_date: cartDeliveryDate,
       total_amount: totalOrderAmount,
       payment_method: "COD",
-      status: "Processing",
+      status: "Pending",
       created_at: new Date().toISOString(),
       items: cart.map((item, idx) => ({
         id: Date.now() + idx,
@@ -670,7 +674,8 @@ export default function DashboardPage() {
             delivery_date: o.delivery_date || o.deliveryDate || "",
             total_amount: Number(o.total_amount || o.totalAmount || 0),
             payment_method: o.payment_method || o.paymentMethod || "COD",
-            status: o.status || o.Status || "Processing",
+            status: o.status || o.Status || "Pending",
+            decline_reason: o.decline_reason || o.declineReason || "",
             created_at: o.created_at || o.createdAt || new Date().toISOString(),
             items: o.items || []
           }));
@@ -732,6 +737,55 @@ export default function DashboardPage() {
     setOrders(updated);
     saveStoredOrders(updated);
     showToast("success", `Order #${orderId} status updated to ${newStatus}.`);
+  };
+
+  const handleApproveOrder = async (orderId: number) => {
+    try {
+      const res = await fetch(`/api/orders/admin/approve/${orderId}`, {
+        method: "PUT",
+      });
+      if (res.ok) {
+        showToast("success", `✓ Order #${orderId} has been approved!`);
+      }
+    } catch (err) {
+      console.log("PUT approve notice:", err);
+    }
+    const updated = orders.map((o) =>
+      o.id === orderId ? { ...o, status: "Approved" } : o
+    );
+    setOrders(updated);
+    saveStoredOrders(updated);
+    await fetchOrders();
+  };
+
+  const handleDeclineOrder = async (orderId: number, reason: string) => {
+    const trimmed = reason.trim();
+    if (!trimmed) {
+      showToast("error", "Please provide a reason for declining the order.");
+      return;
+    }
+    setIsSubmittingDecline(true);
+    try {
+      const res = await fetch(`/api/orders/admin/decline/${orderId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: trimmed }),
+      });
+      if (res.ok) {
+        showToast("success", `Order #${orderId} declined with reason.`);
+      }
+    } catch (err) {
+      console.log("PUT decline notice:", err);
+    }
+    const updated = orders.map((o) =>
+      o.id === orderId ? { ...o, status: "Declined", decline_reason: trimmed } : o
+    );
+    setOrders(updated);
+    saveStoredOrders(updated);
+    setOrderToDecline(null);
+    setDeclineReasonInput("");
+    setIsSubmittingDecline(false);
+    await fetchOrders();
   };
 
   // 3. PUT /api/orders/cancel/{orderId}
@@ -2045,28 +2099,6 @@ export default function DashboardPage() {
           ) : activeTab === "orders" ? (
             /* ORDERS MANAGEMENT VIEW */
             <div className="space-y-6 animate-in fade-in duration-200">
-              {/* CONTROLS BAR */}
-              {isAdmin && (
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                  {/* SEARCH ORDER */}
-                  <div className="relative w-full sm:w-80">
-                    <input
-                      type="text"
-                      value={searchOrder}
-                      onChange={(e) => setSearchOrder(e.target.value)}
-                      placeholder="Search order ID or customer..."
-                      className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-white border border-orange-200 text-stone-900 text-xs placeholder-stone-400 focus:outline-none focus:border-orange-500 shadow-sm font-medium"
-                    />
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs">
-                      🔍
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                  </div>
-                </div>
-              )}
-
               {/* ORDERS TABLE VIEW */}
               {loadingOrders ? (
                 <div className="text-center py-16 bg-white border border-orange-200 rounded-3xl">
@@ -2079,12 +2111,13 @@ export default function DashboardPage() {
                     if (!o.customer_name || o.customer_name.startsWith("Customer #")) {
                       o.customer_name = uName;
                     }
+                    const isUserMatch =
+                      o.user_id === user.id ||
+                      (user.full_name && o.customer_name?.toLowerCase() === user.full_name.toLowerCase()) ||
+                      (user.username && o.customer_name?.toLowerCase() === user.username.toLowerCase());
+                    if (!isUserMatch) return false;
                   }
-                  return (
-                    searchOrder === "" ||
-                    (o.customer_name || "").toLowerCase().includes(searchOrder.toLowerCase()) ||
-                    (o.customer_address || "").toLowerCase().includes(searchOrder.toLowerCase())
-                  );
+                  return true;
                 }).length === 0 ? (
                 <div className="text-center py-16 bg-white border border-orange-200 rounded-3xl">
                   <p className="text-stone-500 text-sm font-bold">No orders found.</p>
@@ -2109,11 +2142,7 @@ export default function DashboardPage() {
                               (user.username && o.customer_name?.toLowerCase() === user.username.toLowerCase());
                             if (!isUserMatch) return false;
                           }
-                          return (
-                            searchOrder === "" ||
-                            (o.customer_name || "").toLowerCase().includes(searchOrder.toLowerCase()) ||
-                            (o.customer_address || "").toLowerCase().includes(searchOrder.toLowerCase())
-                          );
+                          return true;
                         })
                         .map((o) => {
                           return (
@@ -2121,33 +2150,105 @@ export default function DashboardPage() {
                               <td className="py-3.5 font-bold">{o.customer_name || `Customer #${o.user_id}`}</td>
                               <td className="py-3.5">
                                 {isAdmin ? (
-                                  <select
-                                    value={o.status}
-                                    onChange={(e) => handleUpdateOrderStatus(o.id, e.target.value)}
-                                    className={`px-2.5 py-1 rounded-xl text-xs font-bold border focus:outline-none cursor-pointer ${
-                                      o.status === "Completed"
-                                        ? "bg-emerald-50 text-emerald-700 border-emerald-300"
-                                        : o.status === "Delivering"
-                                        ? "bg-blue-50 text-blue-700 border-blue-300"
-                                        : "bg-amber-50 text-amber-800 border-amber-300"
-                                    }`}
-                                  >
-                                    <option value="Processing">Processing</option>
-                                    <option value="Delivering">Delivering</option>
-                                    <option value="Completed">Completed</option>
-                                  </select>
+                                  <div className="space-y-1">
+                                    {o.status === "Pending" ? (
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="px-2.5 py-1 rounded-xl text-xs font-bold border bg-amber-50 text-amber-800 border-amber-300">
+                                          ⏳ Pending Review
+                                        </span>
+                                        <button
+                                          onClick={() => handleApproveOrder(o.id)}
+                                          className="px-2.5 py-1 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition flex items-center gap-1 cursor-pointer"
+                                          title="Approve Order"
+                                        >
+                                          ✓ Approve
+                                        </button>
+                                        <button
+                                          onClick={() => {
+                                            setOrderToDecline(o);
+                                            setDeclineReasonInput("");
+                                          }}
+                                          className="px-2.5 py-1 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-sm transition flex items-center gap-1 cursor-pointer"
+                                          title="Decline Order"
+                                        >
+                                          ✕ Decline
+                                        </button>
+                                      </div>
+                                    ) : o.status === "Declined" ? (
+                                      <div>
+                                        <div className="flex items-center gap-2">
+                                          <span className="px-2.5 py-1 rounded-xl text-xs font-bold border bg-rose-50 text-rose-700 border-rose-300">
+                                            ✕ Declined
+                                          </span>
+                                          <select
+                                            value={o.status}
+                                            onChange={(e) => handleUpdateOrderStatus(o.id, e.target.value)}
+                                            className="px-2 py-0.5 rounded-lg text-[11px] font-bold border border-stone-200 text-stone-600 focus:outline-none cursor-pointer"
+                                          >
+                                            <option value="Declined">Declined</option>
+                                            <option value="Approved">Approved</option>
+                                            <option value="Processing">Processing</option>
+                                            <option value="Delivering">Delivering</option>
+                                            <option value="Completed">Completed</option>
+                                          </select>
+                                        </div>
+                                        {o.decline_reason && (
+                                          <p className="text-[11px] text-rose-600 mt-1 font-medium max-w-[240px] truncate" title={o.decline_reason}>
+                                            <span className="font-bold">Reason:</span> {o.decline_reason}
+                                          </p>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <select
+                                        value={o.status}
+                                        onChange={(e) => handleUpdateOrderStatus(o.id, e.target.value)}
+                                        className={`px-2.5 py-1 rounded-xl text-xs font-bold border focus:outline-none cursor-pointer ${
+                                          o.status === "Completed"
+                                            ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                                            : o.status === "Delivering"
+                                            ? "bg-blue-50 text-blue-700 border-blue-300"
+                                            : o.status === "Approved"
+                                            ? "bg-teal-50 text-teal-800 border-teal-300"
+                                            : "bg-amber-50 text-amber-800 border-amber-300"
+                                        }`}
+                                      >
+                                        <option value="Approved">Approved</option>
+                                        <option value="Processing">Processing</option>
+                                        <option value="Delivering">Delivering</option>
+                                        <option value="Completed">Completed</option>
+                                        <option value="Declined">Declined</option>
+                                      </select>
+                                    )}
+                                  </div>
                                 ) : (
-                                  <span
-                                    className={`px-2.5 py-1 rounded-xl text-xs font-bold border ${
-                                      o.status === "Completed"
-                                        ? "bg-emerald-50 text-emerald-700 border-emerald-300"
-                                        : o.status === "Delivering"
-                                        ? "bg-blue-50 text-blue-700 border-blue-300"
-                                        : "bg-amber-50 text-amber-800 border-amber-300"
-                                    }`}
-                                  >
-                                    {o.status}
-                                  </span>
+                                  <div>
+                                    <span
+                                      className={`px-2.5 py-1 rounded-xl text-xs font-bold border inline-block ${
+                                        o.status === "Completed"
+                                          ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                                          : o.status === "Delivering"
+                                          ? "bg-blue-50 text-blue-700 border-blue-300"
+                                          : o.status === "Approved"
+                                          ? "bg-teal-50 text-teal-800 border-teal-300"
+                                          : o.status === "Declined"
+                                          ? "bg-rose-50 text-rose-700 border-rose-300"
+                                          : "bg-amber-50 text-amber-800 border-amber-300"
+                                      }`}
+                                    >
+                                      {o.status === "Pending"
+                                        ? "⏳ Pending Approval"
+                                        : o.status === "Approved"
+                                        ? "✓ Approved"
+                                        : o.status === "Declined"
+                                        ? "✕ Declined"
+                                        : o.status}
+                                    </span>
+                                    {o.status === "Declined" && (
+                                      <div className="mt-1.5 px-2.5 py-1.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-medium max-w-xs shadow-sm">
+                                        <span className="font-bold text-rose-900">Bakery Note:</span> {o.decline_reason || "Order was declined by bakery."}
+                                      </div>
+                                    )}
+                                  </div>
                                 )}
                               </td>
                               <td className="py-3.5 text-right space-x-2">
@@ -2201,29 +2302,16 @@ export default function DashboardPage() {
             /* ANNOUNCEMENTS MANAGEMENT VIEW */
             <div className="space-y-6 animate-in fade-in duration-200">
               {/* CONTROLS */}
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                <div className="relative w-full sm:w-80">
-                  <input
-                    type="text"
-                    value={searchAnnouncement}
-                    onChange={(e) => setSearchAnnouncement(e.target.value)}
-                    placeholder="Search announcements..."
-                    className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-white border border-orange-200 text-stone-900 text-xs placeholder-stone-400 focus:outline-none focus:border-orange-500 shadow-sm font-medium"
-                  />
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs">
-                    🔍
-                  </span>
-                </div>
-
-                {isAdmin && (
+              {isAdmin && (
+                <div className="flex justify-end">
                   <button
                     onClick={() => setIsAddAnnouncementOpen(true)}
-                    className="px-4 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold transition shadow-lg shadow-orange-600/30 flex items-center gap-1.5 cursor-pointer self-end sm:self-auto"
+                    className="px-4 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold transition shadow-lg shadow-orange-600/30 flex items-center gap-1.5 cursor-pointer"
                   >
                     <span>+ Post Announcement</span>
                   </button>
-                )}
-              </div>
+                </div>
+              )}
 
               {/* ANNOUNCEMENTS GRID */}
               {loadingAnnouncements ? (
@@ -2231,23 +2319,13 @@ export default function DashboardPage() {
                   <div className="animate-spin w-8 h-8 border-4 border-orange-600 border-t-transparent rounded-full mx-auto mb-3" />
                   <p className="text-xs font-bold text-stone-600">Loading announcements...</p>
                 </div>
-              ) : announcements.filter((a) =>
-                  searchAnnouncement === "" ||
-                  a.title.toLowerCase().includes(searchAnnouncement.toLowerCase()) ||
-                  a.content.toLowerCase().includes(searchAnnouncement.toLowerCase())
-                ).length === 0 ? (
+              ) : announcements.length === 0 ? (
                 <div className="text-center py-16 bg-white border border-orange-200 rounded-3xl">
                   <p className="text-stone-500 text-sm font-bold">No announcements found.</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {announcements
-                    .filter((a) =>
-                      searchAnnouncement === "" ||
-                      a.title.toLowerCase().includes(searchAnnouncement.toLowerCase()) ||
-                      a.content.toLowerCase().includes(searchAnnouncement.toLowerCase())
-                    )
-                    .map((ann) => (
+                  {announcements.map((ann) => (
                       <div
                         key={ann.id}
                         className="bg-white border border-orange-200/80 rounded-3xl p-6 shadow-sm hover:shadow-md transition flex flex-col justify-between space-y-4"
@@ -3174,6 +3252,12 @@ export default function DashboardPage() {
                   {selectedOrderDetails.customer_address || "Olongapo City"}
                 </span>
               </div>
+              {selectedOrderDetails.status === "Declined" && (
+                <div className="col-span-2 sm:col-span-3 p-3.5 bg-rose-50 border border-rose-200 rounded-2xl text-rose-800 text-xs shadow-sm">
+                  <span className="font-bold block text-[10px] uppercase tracking-wider text-rose-900 mb-0.5">⚠️ Order Declined by Bakery</span>
+                  <p className="font-semibold">{selectedOrderDetails.decline_reason || "No specific reason provided."}</p>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -3256,6 +3340,84 @@ export default function DashboardPage() {
               >
                 Close
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DECLINE ORDER REASON MODAL */}
+      {orderToDecline && (
+        <div className="fixed inset-0 bg-stone-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-rose-200 rounded-3xl p-6 w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center justify-between pb-3 mb-4 border-b border-stone-100">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">⚠️</span>
+                <div>
+                  <h3 className="text-base font-black text-stone-900">Decline Order #{orderToDecline.id}</h3>
+                  <p className="text-xs text-stone-500 font-medium">Customer: {orderToDecline.customer_name || `Customer #${orderToDecline.user_id}`}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setOrderToDecline(null)}
+                className="p-1 text-stone-400 hover:text-stone-700 font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-stone-700 mb-1.5">
+                  Decline Reason <span className="text-rose-500">*</span>
+                </label>
+                <textarea
+                  rows={3}
+                  value={declineReasonInput}
+                  onChange={(e) => setDeclineReasonInput(e.target.value)}
+                  placeholder="Explain why this order is being declined (e.g. flavor out of stock, maximum baking capacity reached, etc.)..."
+                  className="w-full px-3.5 py-2.5 rounded-2xl bg-white border border-stone-300 text-stone-900 text-xs font-medium placeholder-stone-400 focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500"
+                />
+              </div>
+
+              {/* QUICK REASONS SUGGESTIONS */}
+              <div>
+                <p className="text-[11px] font-bold text-stone-500 mb-1.5 uppercase tracking-wider">Quick Suggestions:</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    "Flavor/Ingredients currently out of stock",
+                    "Bakery at full capacity for selected date",
+                    "Delivery location outside current service range",
+                    "Order placed past daily baking cutoff time"
+                  ].map((quickText) => (
+                    <button
+                      key={quickText}
+                      type="button"
+                      onClick={() => setDeclineReasonInput(quickText)}
+                      className="px-2.5 py-1 rounded-xl text-[10px] font-semibold bg-stone-100 hover:bg-stone-200 text-stone-700 transition cursor-pointer"
+                    >
+                      + {quickText}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-stone-100">
+                <button
+                  type="button"
+                  onClick={() => setOrderToDecline(null)}
+                  className="px-4 py-2.5 rounded-xl border border-stone-300 text-stone-700 text-xs font-bold hover:bg-stone-50 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={!declineReasonInput.trim() || isSubmittingDecline}
+                  onClick={() => handleDeclineOrder(orderToDecline.id, declineReasonInput)}
+                  className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-md shadow-rose-600/30 transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1.5"
+                >
+                  {isSubmittingDecline ? "Declining..." : "Confirm & Decline"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

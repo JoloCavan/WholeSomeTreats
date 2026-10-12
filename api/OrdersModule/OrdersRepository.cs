@@ -36,7 +36,8 @@ namespace API.OrdersModule
                 CreatedAt = reader.GetDateTime(reader.GetOrdinal("created_at")),
                 CustomerName = GetStringOrEmpty(reader, "customer_name"),
                 CustomerAddress = GetStringOrEmpty(reader, "customer_address"),
-                DeliveryDate = GetStringOrEmpty(reader, "delivery_date")
+                DeliveryDate = GetStringOrEmpty(reader, "delivery_date"),
+                DeclineReason = GetStringOrEmpty(reader, "decline_reason")
             };
         }
 
@@ -187,6 +188,15 @@ namespace API.OrdersModule
         public async Task UpdateOrderStatusAsync(int orderId, string status)
         {
             await ExecuteNonQueryAsync("UPDATE orders SET status = @status WHERE id = @id", new[] { CreateParameter("status", status), CreateParameter("id", orderId) });
+        }
+
+        public async Task DeclineOrderAsync(int orderId, string declineReason)
+        {
+            await ExecuteNonQueryAsync("UPDATE orders SET status = 'Declined', decline_reason = @reason WHERE id = @id", new[] 
+            { 
+                CreateParameter("reason", declineReason), 
+                CreateParameter("id", orderId) 
+            });
         }
 
         public async Task UpdateDeliveryDateAsync(int orderId, string deliveryDate)

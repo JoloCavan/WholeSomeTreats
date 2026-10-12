@@ -61,7 +61,7 @@ namespace API.Controllers
             }
 
             int orderId = await _ordersRepository.CreateOrderAsync(userId, summaryItems);
-            await _ordersRepository.UpdateOrderStatusAsync(orderId, "Processing");
+            // Leave status as Pending so Admin can approve or decline the order
 
             if (!string.IsNullOrWhiteSpace(request?.DeliveryDate))
             {
@@ -98,7 +98,7 @@ namespace API.Controllers
             };
 
             int orderId = await _ordersRepository.CreateOrderAsync(userId, summaryItems);
-            await _ordersRepository.UpdateOrderStatusAsync(orderId, "Processing");
+            // Leave status as Pending so Admin can approve or decline the order
 
             if (!string.IsNullOrWhiteSpace(request?.DeliveryDate))
             {
@@ -145,6 +145,26 @@ namespace API.Controllers
         public class StatusUpdateRequest
         {
             public string Status { get; set; } = string.Empty;
+        }
+
+        public class DeclineOrderRequest
+        {
+            public string Reason { get; set; } = string.Empty;
+        }
+
+        [HttpPut("admin/approve/{orderId}")]
+        public async Task<IActionResult> ApproveOrder(int orderId)
+        {
+            await _ordersRepository.UpdateOrderStatusAsync(orderId, "Approved");
+            return Ok(new { message = "Order approved successfully.", orderId = orderId });
+        }
+
+        [HttpPut("admin/decline/{orderId}")]
+        public async Task<IActionResult> DeclineOrder(int orderId, [FromBody] DeclineOrderRequest request)
+        {
+            string reason = string.IsNullOrWhiteSpace(request?.Reason) ? "Order declined by bakery." : request.Reason.Trim();
+            await _ordersRepository.DeclineOrderAsync(orderId, reason);
+            return Ok(new { message = "Order declined successfully.", orderId = orderId, declineReason = reason });
         }
 
         [HttpPut("admin/status/{orderId}")]

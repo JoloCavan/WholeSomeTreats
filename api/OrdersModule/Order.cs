@@ -35,6 +35,9 @@ namespace API.OrdersModule
         [JsonPropertyName("delivery_date")]
         public string DeliveryDate { get; set; } = string.Empty;
 
+        [JsonPropertyName("decline_reason")]
+        public string? DeclineReason { get; set; }
+
         [JsonPropertyName("items")]
         public List<OrderItemDetail> Items { get; set; } = new List<OrderItemDetail>();
     }

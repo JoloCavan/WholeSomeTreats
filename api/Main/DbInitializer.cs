@@ -56,6 +56,7 @@ namespace API.Main
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'customer';",
                     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_date VARCHAR(50) DEFAULT '';",
                     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_address TEXT DEFAULT '';",
+                    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS decline_reason TEXT DEFAULT '';",
                     "UPDATE users SET role = 'customer' WHERE role IS NULL OR role = '';"
                 };
 

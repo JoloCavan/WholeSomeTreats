@@ -9,6 +9,7 @@ namespace API.OrdersModule
         Task<IEnumerable<Order>> GetAllOrdersAsync(); 
         Task<IEnumerable<Order>> GetOrdersByUserIdAsync(int userId); 
         Task UpdateOrderStatusAsync(int orderId, string status);
+        Task DeclineOrderAsync(int orderId, string declineReason);
         Task UpdateDeliveryDateAsync(int orderId, string deliveryDate);
         Task UpdateCustomerAddressAsync(int orderId, string customerAddress);
         Task<bool> CancelOrderAsync(int orderId, int userId); 

@@ -2626,6 +2626,13 @@ export default function DashboardPage() {
                                 {isAdmin && o.status === "Pending" ? (
                                   <div className="inline-flex items-center gap-2">
                                     <button
+                                      onClick={() => setSelectedOrderDetails(o)}
+                                      className="px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold border border-blue-200 cursor-pointer text-xs transition"
+                                      title="View Order Details"
+                                    >
+                                      Details
+                                    </button>
+                                    <button
                                       onClick={() => handleApproveOrder(o.id)}
                                       className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-sm hover:shadow transition flex items-center gap-1 cursor-pointer"
                                       title="Approve Order"
@@ -3751,6 +3758,35 @@ export default function DashboardPage() {
                     <span>✕</span>
                     <span>Cancel Order</span>
                   </button>
+                )}
+                {isAdmin && selectedOrderDetails.status === "Pending" && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        const orderId = selectedOrderDetails.id;
+                        setSelectedOrderDetails(null);
+                        handleApproveOrder(orderId);
+                      }}
+                      className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition flex items-center gap-1.5 cursor-pointer"
+                      title="Approve Order"
+                    >
+                      <span>✓</span>
+                      <span>Approve Order</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        const toDecline = selectedOrderDetails;
+                        setSelectedOrderDetails(null);
+                        setOrderToDecline(toDecline);
+                        setDeclineReasonInput("");
+                      }}
+                      className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-md shadow-rose-600/20 transition flex items-center gap-1.5 cursor-pointer"
+                      title="Decline Order"
+                    >
+                      <span>✕</span>
+                      <span>Decline Order</span>
+                    </button>
+                  </div>
                 )}
               </div>
               <button

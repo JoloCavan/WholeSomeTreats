@@ -17,7 +17,6 @@ export default function AuthPage() {
   const [regUsername, setRegUsername] = useState("");
   const [regFullName, setRegFullName] = useState("");
   const [regPhoneNumber, setRegPhoneNumber] = useState("");
-  const [regAddress, setRegAddress] = useState("");
   const [regPassword, setRegPassword] = useState("");
   const [showRegPassword, setShowRegPassword] = useState(false);
 
@@ -195,12 +194,12 @@ export default function AuthPage() {
           Username: targetUsername,
           FullName: regFullName || targetUsername,
           PhoneNumber: regPhoneNumber.trim(),
-          Address: regAddress || "Default Address",
+          Address: "",
           Password: targetPassword,
           username: targetUsername,
           fullName: regFullName || targetUsername,
           phoneNumber: regPhoneNumber.trim(),
-          address: regAddress || "Default Address",
+          address: "",
           password: targetPassword,
         }),
       });
@@ -562,42 +561,27 @@ export default function AuthPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3 text-left">
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-xs font-bold text-stone-700">
-                      Phone Number *
-                    </label>
-                    <span className={`text-[10px] font-semibold ${regPhoneNumber.length === 11 ? "text-emerald-600" : "text-amber-600"}`}>
-                      {regPhoneNumber.length}/11
-                    </span>
-                  </div>
-                  <input
-                    type="text"
-                    required
-                    maxLength={11}
-                    value={regPhoneNumber}
-                    onChange={(e) => {
-                      const cleanDigits = e.target.value.replace(/\D/g, "").slice(0, 11);
-                      setRegPhoneNumber(cleanDigits);
-                    }}
-                    placeholder="e.g. 09123456789"
-                    className="w-full pl-3 pr-3 py-2.5 rounded-xl bg-orange-50/40 border border-orange-200 text-stone-900 placeholder-stone-400 text-xs focus:outline-none focus:border-orange-500 focus:bg-white font-medium"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
+              <div className="space-y-1.5 text-left">
+                <div className="flex items-center justify-between">
                   <label className="block text-xs font-bold text-stone-700">
-                    Address
+                    Phone Number *
                   </label>
-                  <input
-                    type="text"
-                    value={regAddress}
-                    onChange={(e) => setRegAddress(e.target.value)}
-                    placeholder="e.g. City, Country"
-                    className="w-full pl-3 pr-3 py-2.5 rounded-xl bg-orange-50/40 border border-orange-200 text-stone-900 placeholder-stone-400 text-xs focus:outline-none focus:border-orange-500 focus:bg-white font-medium"
-                  />
+                  <span className={`text-[10px] font-semibold ${regPhoneNumber.length === 11 ? "text-emerald-600" : "text-amber-600"}`}>
+                    {regPhoneNumber.length}/11
+                  </span>
                 </div>
+                <input
+                  type="text"
+                  required
+                  maxLength={11}
+                  value={regPhoneNumber}
+                  onChange={(e) => {
+                    const cleanDigits = e.target.value.replace(/\D/g, "").slice(0, 11);
+                    setRegPhoneNumber(cleanDigits);
+                  }}
+                  placeholder="e.g. 09123456789"
+                  className="w-full pl-4 pr-4 py-2.5 rounded-xl bg-orange-50/40 border border-orange-200 text-stone-900 placeholder-stone-400 text-sm focus:outline-none focus:border-orange-500 focus:bg-white font-medium"
+                />
               </div>
 
               <div className="space-y-1.5 text-left">

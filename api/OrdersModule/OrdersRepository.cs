@@ -49,7 +49,7 @@ namespace API.OrdersModule
 
             try
             {
-                decimal totalAmount = 0;
+                decimal totalAmount = 50; // Fixed delivery fee of 50 PHP
                 var itemsList = new List<CartItemSummary>(cartItems);
                 foreach (var item in itemsList) totalAmount += item.Price * item.Quantity;
 

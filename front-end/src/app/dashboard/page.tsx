@@ -484,6 +484,23 @@ export const formatPreferredTimeDisplay = (timeStr?: string): string => {
   return `${hours}:${minutes.padStart(2, "0")} ${ampm}`;
 };
 
+export const getOrderGrandTotal = (ord: Order): number => {
+  const itemsSubtotal =
+    ord.items && ord.items.length > 0
+      ? ord.items.reduce(
+          (sum: number, it: OrderItem) =>
+            sum + Number(it.price_at_purchase || 0) * Number(it.quantity || 1),
+          0
+        )
+      : Number(ord.total_amount || 0);
+
+  // If database total already includes 50 delivery fee (total_amount >= itemsSubtotal + 50)
+  if (Number(ord.total_amount || 0) >= itemsSubtotal + 50) {
+    return Number(ord.total_amount);
+  }
+  return itemsSubtotal + 50;
+};
+
 export const getTomorrowLocalDateString = (): string => {
   return getNextSundayLocalDateString();
 };
@@ -638,11 +655,10 @@ export default function DashboardPage() {
 
   // Aggregate Baking Quantities
   const bakingProductionData = useMemo(() => {
-    // Only exclude orders that don't need baking: Declined, Cancelled, Completed
+    // Only include Approved orders - Pending orders must not be shown
     const activeBakeOrders = orders.filter((o) => {
       const status = (o.status || "").toLowerCase();
-      if (status === "declined" || status === "cancelled" || status === "completed") return false;
-      return true;
+      return status === "approved";
     });
 
     // Orders for timeline display (can be filtered by Sunday date batch)
@@ -2439,7 +2455,7 @@ export default function DashboardPage() {
                     </div>
                     <h4 className="text-base font-bold text-stone-800">All Caught Up!</h4>
                     <p className="text-xs text-stone-500 max-w-sm mx-auto mt-1 font-medium">
-                      There are no active orders needing baking for the selected filter. When new customer orders are placed, they will appear here grouped by Sunday.
+                      There are no approved orders needing baking. When customer orders are approved, they will appear here grouped by Sunday.
                     </p>
                   </div>
                 ) : (
@@ -2602,7 +2618,7 @@ export default function DashboardPage() {
 
                                   <div className="pt-2 border-t border-stone-200/60 flex items-center justify-between text-xs">
                                     <span className="font-bold text-stone-500 text-[11px]">
-                                      Total: <strong className="text-stone-800 font-black">₱{ord.total_amount.toFixed(2)}</strong> ({ord.payment_method})
+                                      Total: <strong className="text-stone-800 font-black">₱{getOrderGrandTotal(ord).toFixed(2)}</strong> ({ord.payment_method})
                                     </span>
                                     <button
                                       onClick={() => setSelectedOrderDetails(ord)}
@@ -4339,7 +4355,7 @@ export default function DashboardPage() {
 
                 return (
                   <div className="space-y-3">
-                    <div className="divide-y divide-stone-100 max-h-40 overflow-y-auto pr-1">
+                    <div className="divide-y divide-stone-100 max-h-40 overflow-y-auto">
                       {finalItems.map((it, idx) => (
                         <div key={idx} className="py-2.5 flex items-center justify-between text-xs">
                           <div>
@@ -4351,7 +4367,7 @@ export default function DashboardPage() {
                               Qty: {it.quantity} {it.unit_type || "pc"} × ₱{Number(it.price_at_purchase).toFixed(2)}
                             </p>
                           </div>
-                          <span className="font-mono font-black text-stone-900">
+                          <span className="font-mono font-black text-stone-900 text-right min-w-[70px]">
                             ₱{(Number(it.quantity) * Number(it.price_at_purchase)).toFixed(2)}
                           </span>
                         </div>
@@ -4361,18 +4377,18 @@ export default function DashboardPage() {
                     <div className="pt-3 border-t border-stone-200 space-y-1.5 text-xs">
                       <div className="flex items-center justify-between text-stone-600 font-medium">
                         <span>Items Subtotal</span>
-                        <span className="font-mono font-bold">₱{itemsSubtotal.toFixed(2)}</span>
+                        <span className="font-mono font-bold text-stone-800 text-right min-w-[70px]">₱{itemsSubtotal.toFixed(2)}</span>
                       </div>
                       <div className="flex items-center justify-between text-stone-600 font-medium">
                         <div className="flex items-center space-x-1.5">
                           <span>Delivery Fee</span>
                           <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold">Fixed</span>
                         </div>
-                        <span className="font-mono font-bold">₱{deliveryFee.toFixed(2)}</span>
+                        <span className="font-mono font-bold text-stone-800 text-right min-w-[70px]">₱{deliveryFee.toFixed(2)}</span>
                       </div>
-                      <div className="flex items-center justify-between font-black text-stone-900 text-sm pt-2 border-t border-dashed border-stone-200">
+                      <div className="flex items-baseline justify-between font-black text-stone-900 text-sm pt-2 border-t border-dashed border-stone-200">
                         <span>Total Amount</span>
-                        <span className="font-mono text-orange-600 text-base">₱{grandTotal.toFixed(2)}</span>
+                        <span className="font-mono text-orange-600 text-base font-black text-right min-w-[70px]">₱{grandTotal.toFixed(2)}</span>
                       </div>
                     </div>
                   </div>

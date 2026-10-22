@@ -40,6 +40,7 @@ export interface Order {
   delivery_date?: string;
   total_amount: number;
   payment_method: string;
+  payment_screenshot?: string;
   status: string;
   created_at: string;
   decline_reason?: string;
@@ -625,9 +626,11 @@ export default function DashboardPage() {
 
   // Cart State
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [cartDeliveryAddress, setCartDeliveryAddress] = useState<string>("Olongapo City");
+  const [cartDeliveryAddress, setCartDeliveryAddress] = useState<string>("");
   const [cartDeliveryDate, setCartDeliveryDate] = useState<string>(getTomorrowLocalDateString());
   const [cartDeliveryTime, setCartDeliveryTime] = useState<string>("10:00");
+  const [cartPaymentMethod, setCartPaymentMethod] = useState<string>("COD");
+  const [cartPaymentScreenshot, setCartPaymentScreenshot] = useState<string | null>(null);
   const [isCheckingOutCart, setIsCheckingOutCart] = useState<boolean>(false);
 
   // Customer Pending and Declined Orders for Cart View
@@ -933,8 +936,10 @@ export default function DashboardPage() {
     const payload = {
       userId: currentUserId,
       customerName: currentCustomerName,
-      customerAddress: cartDeliveryAddress || "Olongapo City",
+      customerAddress: cartDeliveryAddress,
       deliveryDate: combinedDeliveryDateTime,
+      paymentMethod: cartPaymentMethod,
+      paymentScreenshot: cartPaymentScreenshot || null,
       items: cart.map((item) => ({
         productId: item.product_id,
         variationId: item.variation_id || null,
@@ -966,10 +971,11 @@ export default function DashboardPage() {
       id: newOrderId,
       user_id: currentUserId,
       customer_name: currentCustomerName,
-      customer_address: cartDeliveryAddress || "Olongapo City",
+      customer_address: cartDeliveryAddress,
       delivery_date: combinedDeliveryDateTime,
       total_amount: totalOrderAmount,
-      payment_method: "COD",
+      payment_method: cartPaymentMethod,
+      payment_screenshot: cartPaymentScreenshot || undefined,
       status: "Pending",
       created_at: new Date().toISOString(),
       items: cart.map((item, idx) => ({
@@ -3013,8 +3019,55 @@ export default function DashboardPage() {
                         </div>
                         <div className="flex items-center justify-between text-stone-600 font-medium">
                           <span>Payment Method</span>
-                          <span className="font-bold text-stone-900">Cash on Delivery (COD)</span>
+                          <select
+                            value={cartPaymentMethod}
+                            onChange={(e) => { setCartPaymentMethod(e.target.value); setCartPaymentScreenshot(null); }}
+                            className="font-bold text-stone-900 bg-transparent border-none outline-none cursor-pointer text-xs text-right"
+                          >
+                            <option value="COD">Cash on Delivery (COD)</option>
+                            <option value="Online Payment">Online Payment (GCash/Maya)</option>
+                          </select>
                         </div>
+
+                        {/* QR Code + Screenshot Upload for Online Payment */}
+                        {cartPaymentMethod === "Online Payment" && (
+                          <div className="border border-orange-200 rounded-2xl p-4 bg-orange-50/40 space-y-3">
+                            <p className="text-xs font-bold text-stone-700 text-center">📲 Scan to Pay via InstaPay</p>
+                            <div className="flex justify-center">
+                              <img
+                                src="/images/maribank_qr.png"
+                                alt="MariBank InstaPay QR Code"
+                                className="w-52 h-auto rounded-2xl border border-orange-200 shadow-sm"
+                              />
+                            </div>
+                            <p className="text-[11px] text-stone-500 text-center">RONN CRISTIAN NAVA · MariBank (****9733)</p>
+                            <div className="space-y-1.5">
+                              <label className="block text-xs font-bold text-stone-700">📎 Upload Payment Screenshot <span className="text-rose-500">*</span></label>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => setCartPaymentScreenshot(reader.result as string);
+                                    reader.readAsDataURL(file);
+                                  }
+                                }}
+                                className="w-full text-xs text-stone-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-orange-100 file:text-orange-700 hover:file:bg-orange-200 cursor-pointer"
+                              />
+                              {cartPaymentScreenshot && (
+                                <div className="mt-2">
+                                  <img src={cartPaymentScreenshot} alt="Payment proof" className="w-full max-h-36 object-contain rounded-xl border border-orange-200" />
+                                  <p className="text-[10px] text-emerald-600 font-bold mt-1">✅ Screenshot attached</p>
+                                </div>
+                              )}
+                              {!cartPaymentScreenshot && (
+                                <p className="text-[10px] text-rose-500 font-semibold">⚠️ You must attach a payment screenshot to proceed.</p>
+                              )}
+                            </div>
+                          </div>
+                        )}
 
                         <div className="border-t border-stone-100 pt-3 space-y-3">
                           <div>
@@ -3139,14 +3192,18 @@ export default function DashboardPage() {
                                 </p>
                               </div>
                             )}
+                            {!cartDeliveryAddress.trim() && (
+                              <p className="text-[11px] text-rose-500 font-bold text-center">📍 Please enter your delivery address to proceed.</p>
+                            )}
 
                             <button
                               onClick={handleCheckoutCart}
-                              disabled={isCheckingOutCart || hasUnavailableCartItems}
-                              className={`w-full py-3.5 rounded-2xl font-bold text-xs shadow-xl transition flex items-center justify-center gap-2 ${hasUnavailableCartItems
+                              disabled={isCheckingOutCart || hasUnavailableCartItems || !cartDeliveryAddress.trim() || (cartPaymentMethod === "Online Payment" && !cartPaymentScreenshot)}
+                              className={`w-full py-3.5 rounded-2xl font-bold text-xs shadow-xl transition flex items-center justify-center gap-2 ${
+                                hasUnavailableCartItems || !cartDeliveryAddress.trim() || (cartPaymentMethod === "Online Payment" && !cartPaymentScreenshot)
                                   ? "bg-stone-300 text-stone-500 cursor-not-allowed shadow-none"
                                   : "bg-orange-600 hover:bg-orange-500 text-white shadow-orange-600/30 cursor-pointer active:scale-95"
-                                }`}
+                              }`}
                             >
                               {isCheckingOutCart ? (
                                 <>
@@ -4403,6 +4460,18 @@ export default function DashboardPage() {
                 <div className="col-span-2 sm:col-span-3 p-3.5 bg-rose-50 border border-rose-200 rounded-2xl text-rose-800 text-xs shadow-sm">
                   <span className="font-bold block text-[10px] uppercase tracking-wider text-rose-900 mb-0.5">⚠️ Order Declined by Bakery</span>
                   <p className="font-semibold">{selectedOrderDetails.decline_reason || "No specific reason provided."}</p>
+                </div>
+              )}
+              {selectedOrderDetails.payment_screenshot && (
+                <div className="col-span-2 sm:col-span-3 space-y-1.5">
+                  <span className="text-stone-400 font-bold uppercase text-[10px] block">💳 Payment Proof</span>
+                  <img
+                    src={selectedOrderDetails.payment_screenshot}
+                    alt="Payment screenshot"
+                    className="w-full max-h-60 object-contain rounded-2xl border border-orange-200 shadow-sm cursor-pointer"
+                    onClick={() => window.open(selectedOrderDetails.payment_screenshot, '_blank')}
+                    title="Click to view full size"
+                  />
                 </div>
               )}
             </div>

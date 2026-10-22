@@ -2203,7 +2203,7 @@ export default function DashboardPage() {
 
         {/* MAIN BODY AREA */}
         <main className="flex-1 p-6 space-y-6 max-w-7xl mx-auto w-full">
-          {activeTab === "products" ? (
+          {activeTab === "products" && (
             /* PRODUCTS MANAGEMENT VIEW */
             <div className="space-y-6 animate-in fade-in duration-200">
               {/* CONTROLS */}
@@ -2317,7 +2317,8 @@ export default function DashboardPage() {
                 </div>
               )}
             </div>
-          ) : activeTab === "baking" ? (
+          )}
+          {activeTab === "baking" && (
             /* BAKING PRODUCTION & DELIVERY SCHEDULE VIEW */
             <div className="space-y-6 animate-in fade-in duration-200">
               {/* HEADER & ACTIONS */}
@@ -2683,7 +2684,8 @@ export default function DashboardPage() {
                 )}
               </div>
             </div>
-          ) : activeTab === "cart" ? (
+          )}
+          {activeTab === "cart" && (
             /* CART VIEW */
             <div className="space-y-6 animate-in fade-in duration-200">
               <div className="flex items-center justify-between">
@@ -3169,7 +3171,8 @@ export default function DashboardPage() {
                 </div>
               )}
             </div>
-          ) : activeTab === "orders" ? (
+          )}
+          {activeTab === "orders" && (
             /* ORDERS MANAGEMENT VIEW */
             <div className="space-y-6 animate-in fade-in duration-200">
               {/* ADMIN KITCHEN PRODUCTION QUICK CALLOUT */}
@@ -3405,7 +3408,8 @@ export default function DashboardPage() {
                 </div>
               )}
             </div>
-          ) : activeTab === "announcements" ? (
+          )}
+          {activeTab === "announcements" && (
             /* ANNOUNCEMENTS MANAGEMENT VIEW */
             <div className="space-y-6 animate-in fade-in duration-200">
               {/* CONTROLS */}

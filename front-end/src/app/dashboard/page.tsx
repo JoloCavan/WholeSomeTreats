@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
@@ -5164,6 +5164,55 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+      {/* RATING MODAL */}
+      {ratingModal && (
+        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-amber-200 rounded-3xl p-7 w-full max-w-sm shadow-2xl animate-in fade-in zoom-in duration-200 space-y-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-black text-stone-900">Rate this Product</h3>
+                <p className="text-xs text-stone-500 font-medium line-clamp-1 mt-0.5">{ratingModal.product.name}</p>
+              </div>
+              <button onClick={() => setRatingModal(null)} className="p-1.5 text-stone-400 hover:text-stone-700 font-bold cursor-pointer">x</button>
+            </div>
+            <div className="flex justify-center gap-2">
+              {[1,2,3,4,5].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setRatingModal(prev => prev ? { ...prev, stars: s } : null)}
+                  className={`text-4xl transition-transform hover:scale-110 cursor-pointer select-none ${s <= ratingModal.stars ? "text-amber-400" : "text-stone-200 hover:text-amber-300"}`}
+                >&#9733;</button>
+              ))}
+            </div>
+            {ratingModal.stars > 0 && (
+              <p className="text-center text-xs font-bold text-amber-600">
+                {["","Poor (1)","Fair (2)","Good (3)","Great (4)","Excellent! (5)"][ratingModal.stars]}
+              </p>
+            )}
+            <div>
+              <label className="block text-xs font-bold text-stone-700 mb-1.5">Comment <span className="text-stone-400 font-normal">(optional)</span></label>
+              <textarea
+                value={ratingModal.comment}
+                onChange={(e) => setRatingModal(prev => prev ? { ...prev, comment: e.target.value } : null)}
+                placeholder="Tell us about your experience..."
+                rows={3}
+                className="w-full px-3.5 py-2.5 rounded-xl bg-orange-50/40 border border-orange-200 text-stone-900 text-xs font-medium focus:outline-none focus:border-orange-500 resize-none"
+              />
+            </div>
+            <div className="flex gap-2.5">
+              <button onClick={() => setRatingModal(null)} className="flex-1 py-2.5 rounded-xl border border-stone-200 text-stone-600 text-xs font-bold hover:bg-stone-50 cursor-pointer transition">Cancel</button>
+              <button
+                onClick={() => ratingModal.stars > 0 && submitRating(ratingModal.product.id, ratingModal.stars, ratingModal.comment)}
+                disabled={ratingModal.stars === 0 || isSubmittingRating}
+                className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition ${ratingModal.stars === 0 || isSubmittingRating ? "bg-stone-200 text-stone-400 cursor-not-allowed" : "bg-amber-500 hover:bg-amber-400 text-white shadow-md shadow-amber-500/30 cursor-pointer"}`}
+              >
+                {isSubmittingRating ? "Submitting..." : "Submit Rating"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

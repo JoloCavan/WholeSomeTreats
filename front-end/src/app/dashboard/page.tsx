@@ -53,6 +53,30 @@ export interface Announcement {
   created_at: string;
 }
 
+export interface DailySale {
+  salesDate: string;
+  dailyRevenue: number;
+  totalOrders: number;
+}
+
+export interface TopProduct {
+  productName: string;
+  totalUnitsSold: number;
+  totalRevenueGenerated: number;
+}
+
+export interface FulfillmentRate {
+  status: string;
+  orderCount: number;
+  percentage: number | string;
+}
+
+export interface PaymentMethodStat {
+  paymentMethod: string;
+  totalRevenue: number;
+  numberOfTransactions: number;
+}
+
 export interface CartItem {
   id: number;
   user_id?: number;
@@ -206,7 +230,7 @@ export const getCategoryImageUrl = (p: { id?: number; name: string; image_url?: 
   if (nameLower.includes("banana")) return "/images/banana_bread.jpg";
   if (nameLower.includes("burnt")) return "/images/burnt_basque_cheesecake.jpg";
   if (nameLower.includes("newyork") || nameLower.includes("new york") || nameLower.includes("cheesecake")) return "/images/newyork_cheesecake.jpg";
-  
+
   if (p.id === 1) return "/images/chocolate_chip_cookie.jpg";
   if (p.id === 2) return "/images/chewy_cringles.jpg";
   if (p.id === 3) return "/images/banana_bread.jpg";
@@ -414,7 +438,7 @@ export const formatDeliveryDate = (dateStr?: string | null, createdAtStr?: strin
     if (!isNaN(d.getTime())) {
       return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
     }
-  } catch (e) {}
+  } catch (e) { }
 
   return str;
 };
@@ -466,7 +490,7 @@ export const formatSundayDateDisplay = (dateStr: string): string => {
       const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
       return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
     }
-  } catch (e) {}
+  } catch (e) { }
   return dateStr;
 };
 
@@ -488,10 +512,10 @@ export const getOrderGrandTotal = (ord: Order): number => {
   const itemsSubtotal =
     ord.items && ord.items.length > 0
       ? ord.items.reduce(
-          (sum: number, it: OrderItem) =>
-            sum + Number(it.price_at_purchase || 0) * Number(it.quantity || 1),
-          0
-        )
+        (sum: number, it: OrderItem) =>
+          sum + Number(it.price_at_purchase || 0) * Number(it.quantity || 1),
+        0
+      )
       : Number(ord.total_amount || 0);
 
   // If database total already includes 50 delivery fee (total_amount >= itemsSubtotal + 50)
@@ -578,6 +602,13 @@ export default function DashboardPage() {
   const [orderToCancel, setOrderToCancel] = useState<Order | null>(null);
   const [isCancellingOrder, setIsCancellingOrder] = useState(false);
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
+
+  // Analytics State
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
+  const [dailySales, setDailySales] = useState<DailySale[]>([]);
+  const [topProducts, setTopProducts] = useState<TopProduct[]>([]);
+  const [fulfillmentRates, setFulfillmentRates] = useState<FulfillmentRate[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethodStat[]>([]);
   const [checkoutProductId, setCheckoutProductId] = useState<number>(1);
   const [checkoutQuantity, setCheckoutQuantity] = useState<number>(1);
 
@@ -628,7 +659,7 @@ export default function DashboardPage() {
     saveStoredOrders(stored.filter((o) => o.id !== orderId));
     try {
       await fetch(`/api/orders/admin/delete/${orderId}`, { method: "DELETE" });
-    } catch (e) {}
+    } catch (e) { }
     showToast("success", "Declined order notification dismissed.");
   };
 
@@ -748,7 +779,7 @@ export default function DashboardPage() {
       try {
         const u = JSON.parse(userStr);
         if (u.id) currentUserId = u.id;
-      } catch (e) {}
+      } catch (e) { }
     }
 
     try {
@@ -758,7 +789,7 @@ export default function DashboardPage() {
       }
 
       let res = await fetch(`/api/cart?userId=${currentUserId}`, { headers });
-      
+
       // If 401 Unauthorized (e.g. invalid or expired token), fallback to anonymous fetch
       if (res.status === 401 && headers["Authorization"]) {
         res = await fetch(`/api/cart?userId=${currentUserId}`);
@@ -785,6 +816,29 @@ export default function DashboardPage() {
       console.log("GET /api/cart notice:", err);
     }
     setCart(localCart);
+  };
+
+  const fetchAnalytics = async () => {
+    setLoadingAnalytics(true);
+    try {
+      const token = localStorage.getItem("token");
+      const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
+      const base = "http://localhost:5272";
+      const [r1, r2, r3, r4] = await Promise.all([
+        fetch(`${base}/api/analytics/daily-sales`, { headers }),
+        fetch(`${base}/api/analytics/top-products`, { headers }),
+        fetch(`${base}/api/analytics/fulfillment-rate`, { headers }),
+        fetch(`${base}/api/analytics/payment-methods`, { headers }),
+      ]);
+      if (r1.ok) setDailySales(await r1.json());
+      if (r2.ok) setTopProducts(await r2.json());
+      if (r3.ok) setFulfillmentRates(await r3.json());
+      if (r4.ok) setPaymentMethods(await r4.json());
+    } catch (err) {
+      console.error("Analytics fetch error:", err);
+    } finally {
+      setLoadingAnalytics(false);
+    }
   };
 
   const handleCartQuantityChange = (cartItemId: number, delta: number) => {
@@ -867,7 +921,7 @@ export default function DashboardPage() {
         const u = JSON.parse(userStr);
         currentCustomerName = u.full_name || u.username || "Customer";
         if (u.id) currentUserId = u.id;
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const itemsSubtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -1556,7 +1610,7 @@ export default function DashboardPage() {
           if (u && (u.username || u.id)) {
             if (!u.id) {
               u.id = u.username?.toLowerCase() === "wholesome" ? 1 : u.username?.toLowerCase() === "jeicho" ? 2 : 3;
-              try { localStorage.setItem("user", JSON.stringify(u)); } catch (e) {}
+              try { localStorage.setItem("user", JSON.stringify(u)); } catch (e) { }
             }
             currentUser = u;
           }
@@ -1579,7 +1633,7 @@ export default function DashboardPage() {
           currentUrl.searchParams.set("auth", authPayload);
           window.history.replaceState({}, document.title, currentUrl.toString());
         }
-      } catch (e) {}
+      } catch (e) { }
     } else {
       // 4. NEVER default to Admin! If not authenticated, redirect to sign-in page
       setUser(null);
@@ -1624,7 +1678,7 @@ export default function DashboardPage() {
       try {
         const u = JSON.parse(userStr);
         if (u.role) userRole = String(u.role).toLowerCase();
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const storedTab = localStorage.getItem("wt_active_tab");
@@ -1858,7 +1912,7 @@ export default function DashboardPage() {
     if (typeof window !== "undefined") {
       try {
         window.history.replaceState({}, document.title, window.location.pathname);
-      } catch (e) {}
+      } catch (e) { }
     }
     setUser(null);
     router.push("/");
@@ -2019,11 +2073,10 @@ export default function DashboardPage() {
       {toast && (
         <div className="fixed top-5 right-5 z-50 animate-bounce duration-300">
           <div
-            className={`flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl border backdrop-blur-xl text-sm font-bold ${
-              toast.type === "success"
+            className={`flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl border backdrop-blur-xl text-sm font-bold ${toast.type === "success"
                 ? "bg-emerald-900 text-emerald-100 border-emerald-500/40"
                 : "bg-rose-900 text-rose-100 border-rose-500/40"
-            }`}
+              }`}
           >
             <span>{toast.type === "success" ? "🎉" : "❌"}</span>
             <span>{toast.message}</span>
@@ -2041,11 +2094,9 @@ export default function DashboardPage() {
 
       {/* SIDEBAR NAVIGATION */}
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-50 bg-stone-900 text-stone-100 border-r border-stone-800 flex flex-col justify-between transition-all duration-300 ${
-          collapsed ? "w-20" : "w-64"
-        } ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
-        }`}
+        className={`fixed top-0 bottom-0 left-0 z-50 bg-stone-900 text-stone-100 border-r border-stone-800 flex flex-col justify-between transition-all duration-300 ${collapsed ? "w-20" : "w-64"
+          } ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+          }`}
       >
         {/* Sidebar Header */}
         <div>
@@ -2077,11 +2128,10 @@ export default function DashboardPage() {
                 <button
                   key={item.id}
                   onClick={() => setActiveTab(item.id)}
-                  className={`w-full flex items-center gap-3.5 px-3.5 py-3 rounded-xl text-sm font-medium transition-all duration-200 group cursor-pointer ${
-                    active
+                  className={`w-full flex items-center gap-3.5 px-3.5 py-3 rounded-xl text-sm font-medium transition-all duration-200 group cursor-pointer ${active
                       ? "bg-orange-600 text-white shadow-lg shadow-orange-600/30 font-bold"
                       : "text-stone-400 hover:text-white hover:bg-stone-800/80"
-                  }`}
+                    }`}
                 >
                   <span className="text-lg group-hover:scale-110 transition-transform shrink-0">
                     {item.icon}
@@ -2136,9 +2186,8 @@ export default function DashboardPage() {
 
       {/* MAIN WRAPPER AREA */}
       <div
-        className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ${
-          collapsed ? "lg:ml-20" : "lg:ml-64"
-        }`}
+        className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ${collapsed ? "lg:ml-20" : "lg:ml-64"
+          }`}
       >
         {/* TOP DASHBOARD HEADER BAR */}
         <header className="h-16 border-b border-orange-200/60 bg-[#FDF8F3]/90 backdrop-blur-md sticky top-0 z-30 px-6 flex items-center justify-between gap-4">
@@ -2209,11 +2258,10 @@ export default function DashboardPage() {
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                           />
                           <span
-                            className={`absolute top-3 right-3 px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                              p.is_available
+                            className={`absolute top-3 right-3 px-2.5 py-1 rounded-full text-[10px] font-bold ${p.is_available
                                 ? "bg-emerald-500 text-white shadow"
                                 : "bg-stone-500 text-white"
-                            }`}
+                              }`}
                           >
                             {p.is_available ? "In Stock" : "Unavailable"}
                           </span>
@@ -2305,11 +2353,10 @@ export default function DashboardPage() {
                   </span>
                   <button
                     onClick={() => setBakingDateFilter("All")}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${
-                      bakingDateFilter === "All"
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${bakingDateFilter === "All"
                         ? "bg-orange-600 text-white border-orange-600 shadow-xs"
                         : "bg-orange-50/60 hover:bg-orange-100 text-orange-900 border-orange-200"
-                    }`}
+                      }`}
                   >
                     All Upcoming Sundays
                   </button>
@@ -2317,11 +2364,10 @@ export default function DashboardPage() {
                     <button
                       key={sun}
                       onClick={() => setBakingDateFilter(sun)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${
-                        bakingDateFilter === sun
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${bakingDateFilter === sun
                           ? "bg-orange-600 text-white border-orange-600 shadow-xs"
                           : "bg-orange-50/60 hover:bg-orange-100 text-orange-900 border-orange-200"
-                      }`}
+                        }`}
                     >
                       🗓️ {formatSundayDateDisplay(sun)}
                     </button>
@@ -2561,13 +2607,12 @@ export default function DashboardPage() {
                                         </span>
                                       </div>
                                       <span
-                                        className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-                                          ord.status === "Approved"
+                                        className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${ord.status === "Approved"
                                             ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
                                             : ord.status === "Processing"
-                                            ? "bg-blue-100 text-blue-800 border border-blue-200"
-                                            : "bg-amber-100 text-amber-800 border border-amber-200"
-                                        }`}
+                                              ? "bg-blue-100 text-blue-800 border border-blue-200"
+                                              : "bg-amber-100 text-amber-800 border border-amber-200"
+                                          }`}
                                       >
                                         {ord.status}
                                       </span>
@@ -2904,44 +2949,44 @@ export default function DashboardPage() {
                                 </div>
                               </div>
 
-                            <div className="flex items-center justify-between sm:justify-end gap-6 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-stone-100">
-                              {/* QUANTITY CONTROLS */}
-                              <div className="flex items-center border border-stone-200 rounded-xl bg-stone-50 overflow-hidden">
+                              <div className="flex items-center justify-between sm:justify-end gap-6 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-stone-100">
+                                {/* QUANTITY CONTROLS */}
+                                <div className="flex items-center border border-stone-200 rounded-xl bg-stone-50 overflow-hidden">
+                                  <button
+                                    onClick={() => handleCartQuantityChange(item.id, -1)}
+                                    className="px-3 py-1 text-stone-600 hover:bg-stone-200 font-bold transition text-xs cursor-pointer"
+                                  >
+                                    -
+                                  </button>
+                                  <span className="px-3 py-1 font-bold text-stone-900 text-xs bg-white border-x border-stone-200">
+                                    {item.quantity}
+                                  </span>
+                                  <button
+                                    onClick={() => handleCartQuantityChange(item.id, 1)}
+                                    className="px-3 py-1 text-stone-600 hover:bg-stone-200 font-bold transition text-xs cursor-pointer"
+                                  >
+                                    +
+                                  </button>
+                                </div>
+
+                                {/* SUBTOTAL & REMOVE */}
+                                <div className="text-right shrink-0 min-w-[80px]">
+                                  <span className="block font-black text-stone-900 text-sm">
+                                    ₱{(item.price * item.quantity).toFixed(2)}
+                                  </span>
+                                </div>
+
                                 <button
-                                  onClick={() => handleCartQuantityChange(item.id, -1)}
-                                  className="px-3 py-1 text-stone-600 hover:bg-stone-200 font-bold transition text-xs cursor-pointer"
+                                  onClick={() => handleRemoveFromCart(item.id)}
+                                  className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition cursor-pointer"
+                                  title="Remove Item"
                                 >
-                                  -
-                                </button>
-                                <span className="px-3 py-1 font-bold text-stone-900 text-xs bg-white border-x border-stone-200">
-                                  {item.quantity}
-                                </span>
-                                <button
-                                  onClick={() => handleCartQuantityChange(item.id, 1)}
-                                  className="px-3 py-1 text-stone-600 hover:bg-stone-200 font-bold transition text-xs cursor-pointer"
-                                >
-                                  +
+                                  🗑️
                                 </button>
                               </div>
-
-                              {/* SUBTOTAL & REMOVE */}
-                              <div className="text-right shrink-0 min-w-[80px]">
-                                <span className="block font-black text-stone-900 text-sm">
-                                  ₱{(item.price * item.quantity).toFixed(2)}
-                                </span>
-                              </div>
-
-                              <button
-                                onClick={() => handleRemoveFromCart(item.id)}
-                                className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition cursor-pointer"
-                                title="Remove Item"
-                              >
-                                🗑️
-                              </button>
                             </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
@@ -3010,11 +3055,10 @@ export default function DashboardPage() {
                                     key={sun}
                                     type="button"
                                     onClick={() => setCartDeliveryDate(sun)}
-                                    className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
-                                      cartDeliveryDate === sun
+                                    className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer ${cartDeliveryDate === sun
                                         ? "bg-orange-600 text-white border-orange-600 shadow-sm"
                                         : "bg-orange-50/70 hover:bg-orange-100 text-orange-900 border-orange-200"
-                                    }`}
+                                      }`}
                                   >
                                     🗓️ {formatSundayDateDisplay(sun)}
                                   </button>
@@ -3049,11 +3093,10 @@ export default function DashboardPage() {
                                   key={slot.time}
                                   type="button"
                                   onClick={() => setCartDeliveryTime(slot.time)}
-                                  className={`px-2 py-1.5 rounded-xl text-[10px] font-bold text-left transition cursor-pointer border ${
-                                    cartDeliveryTime === slot.time
+                                  className={`px-2 py-1.5 rounded-xl text-[10px] font-bold text-left transition cursor-pointer border ${cartDeliveryTime === slot.time
                                       ? "bg-orange-600 text-white border-orange-600 shadow-sm"
                                       : "bg-stone-50 hover:bg-orange-50 text-stone-700 border-stone-200 hover:border-orange-300"
-                                  }`}
+                                    }`}
                                 >
                                   {slot.label}
                                 </button>
@@ -3096,11 +3139,10 @@ export default function DashboardPage() {
                             <button
                               onClick={handleCheckoutCart}
                               disabled={isCheckingOutCart || hasUnavailableCartItems}
-                              className={`w-full py-3.5 rounded-2xl font-bold text-xs shadow-xl transition flex items-center justify-center gap-2 ${
-                                hasUnavailableCartItems
+                              className={`w-full py-3.5 rounded-2xl font-bold text-xs shadow-xl transition flex items-center justify-center gap-2 ${hasUnavailableCartItems
                                   ? "bg-stone-300 text-stone-500 cursor-not-allowed shadow-none"
                                   : "bg-orange-600 hover:bg-orange-500 text-white shadow-orange-600/30 cursor-pointer active:scale-95"
-                              }`}
+                                }`}
                             >
                               {isCheckingOutCart ? (
                                 <>
@@ -3168,21 +3210,21 @@ export default function DashboardPage() {
                   <p className="text-xs font-bold text-stone-600">Loading orders...</p>
                 </div>
               ) : orders.filter((o) => {
-                  if (!isAdmin && user) {
-                    const uName = user.full_name || user.username || "Customer";
-                    if (!o.customer_name || o.customer_name.startsWith("Customer #")) {
-                      o.customer_name = uName;
-                    }
-                    const isUserMatch =
-                      o.user_id === user.id ||
-                      (user.full_name && o.customer_name?.toLowerCase() === user.full_name.toLowerCase()) ||
-                      (user.username && o.customer_name?.toLowerCase() === user.username.toLowerCase());
-                    if (!isUserMatch) return false;
-                    // Pending and Declined orders are displayed in Cart view until approved
-                    if (o.status === "Pending" || o.status === "Declined") return false;
+                if (!isAdmin && user) {
+                  const uName = user.full_name || user.username || "Customer";
+                  if (!o.customer_name || o.customer_name.startsWith("Customer #")) {
+                    o.customer_name = uName;
                   }
-                  return true;
-                }).length === 0 ? (
+                  const isUserMatch =
+                    o.user_id === user.id ||
+                    (user.full_name && o.customer_name?.toLowerCase() === user.full_name.toLowerCase()) ||
+                    (user.username && o.customer_name?.toLowerCase() === user.username.toLowerCase());
+                  if (!isUserMatch) return false;
+                  // Pending and Declined orders are displayed in Cart view until approved
+                  if (o.status === "Pending" || o.status === "Declined") return false;
+                }
+                return true;
+              }).length === 0 ? (
                 <div className="text-center py-16 bg-white border border-orange-200 rounded-3xl">
                   <p className="text-stone-500 text-sm font-bold">No orders found.</p>
                 </div>
@@ -3249,15 +3291,14 @@ export default function DashboardPage() {
                                       <select
                                         value={o.status}
                                         onChange={(e) => handleUpdateOrderStatus(o.id, e.target.value)}
-                                        className={`px-2.5 py-1 rounded-xl text-xs font-bold border focus:outline-none cursor-pointer ${
-                                          o.status === "Completed"
+                                        className={`px-2.5 py-1 rounded-xl text-xs font-bold border focus:outline-none cursor-pointer ${o.status === "Completed"
                                             ? "bg-emerald-50 text-emerald-700 border-emerald-300"
                                             : o.status === "Delivering"
-                                            ? "bg-blue-50 text-blue-700 border-blue-300"
-                                            : o.status === "Approved"
-                                            ? "bg-teal-50 text-teal-800 border-teal-300"
-                                            : "bg-amber-50 text-amber-800 border-amber-300"
-                                        }`}
+                                              ? "bg-blue-50 text-blue-700 border-blue-300"
+                                              : o.status === "Approved"
+                                                ? "bg-teal-50 text-teal-800 border-teal-300"
+                                                : "bg-amber-50 text-amber-800 border-amber-300"
+                                          }`}
                                       >
                                         <option value="Approved">Approved</option>
                                         <option value="Processing">Processing</option>
@@ -3271,35 +3312,34 @@ export default function DashboardPage() {
                                 ) : (
                                   <div>
                                     <span
-                                      className={`px-2.5 py-1 rounded-xl text-xs font-bold border inline-block ${
-                                        o.status === "Completed"
+                                      className={`px-2.5 py-1 rounded-xl text-xs font-bold border inline-block ${o.status === "Completed"
                                           ? "bg-emerald-50 text-emerald-700 border-emerald-300"
                                           : o.status === "Delivering"
-                                          ? "bg-blue-50 text-blue-700 border-blue-300"
-                                          : o.status === "Approved"
-                                          ? "bg-teal-50 text-teal-800 border-teal-300"
-                                          : o.status === "Processing"
-                                          ? "bg-amber-50 text-amber-800 border-amber-300"
-                                          : o.status === "Declined" || o.status === "Cancelled"
-                                          ? "bg-rose-50 text-rose-700 border-rose-300"
-                                          : "bg-stone-50 text-stone-800 border-stone-300"
-                                      }`}
+                                            ? "bg-blue-50 text-blue-700 border-blue-300"
+                                            : o.status === "Approved"
+                                              ? "bg-teal-50 text-teal-800 border-teal-300"
+                                              : o.status === "Processing"
+                                                ? "bg-amber-50 text-amber-800 border-amber-300"
+                                                : o.status === "Declined" || o.status === "Cancelled"
+                                                  ? "bg-rose-50 text-rose-700 border-rose-300"
+                                                  : "bg-stone-50 text-stone-800 border-stone-300"
+                                        }`}
                                     >
                                       {o.status === "Pending"
                                         ? "⏳ Pending Approval"
                                         : o.status === "Approved"
-                                        ? "✓ Approved"
-                                        : o.status === "Processing"
-                                        ? "⚙️ Processing"
-                                        : o.status === "Delivering"
-                                        ? "🚚 Delivering"
-                                        : o.status === "Completed"
-                                        ? "✅ Completed"
-                                        : o.status === "Cancelled"
-                                        ? "✕ Cancelled"
-                                        : o.status === "Declined"
-                                        ? "✕ Declined"
-                                        : o.status}
+                                          ? "✓ Approved"
+                                          : o.status === "Processing"
+                                            ? "⚙️ Processing"
+                                            : o.status === "Delivering"
+                                              ? "🚚 Delivering"
+                                              : o.status === "Completed"
+                                                ? "✅ Completed"
+                                                : o.status === "Cancelled"
+                                                  ? "✕ Cancelled"
+                                                  : o.status === "Declined"
+                                                    ? "✕ Declined"
+                                                    : o.status}
                                     </span>
                                     {o.status === "Declined" && (
                                       <div className="mt-1.5 px-2.5 py-1.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-medium max-w-xs shadow-sm">
@@ -3393,41 +3433,42 @@ export default function DashboardPage() {
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {announcements.map((ann) => (
-                      <div
-                        key={ann.id}
-                        className="bg-white border border-orange-200/80 rounded-3xl p-6 shadow-sm hover:shadow-md transition flex flex-col justify-between space-y-4"
-                      >
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <h3 className="text-base font-black text-stone-900 leading-snug">{ann.title}</h3>
-                            <span className="text-[10px] px-2.5 py-1 rounded-full bg-orange-100 text-orange-800 font-bold shrink-0">
-                              {new Date(ann.created_at).toLocaleDateString()}
-                            </span>
-                          </div>
-                          <p className="text-xs text-stone-600 font-medium leading-relaxed whitespace-pre-line">
-                            {ann.content}
-                          </p>
-                        </div>
-
-                        <div className="flex items-center justify-between pt-3 border-t border-stone-100 text-xs">
-                          <span className="font-mono text-[10px] text-stone-400 font-bold">
-                            ID: #{ann.id}
+                    <div
+                      key={ann.id}
+                      className="bg-white border border-orange-200/80 rounded-3xl p-6 shadow-sm hover:shadow-md transition flex flex-col justify-between space-y-4"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <h3 className="text-base font-black text-stone-900 leading-snug">{ann.title}</h3>
+                          <span className="text-[10px] px-2.5 py-1 rounded-full bg-orange-100 text-orange-800 font-bold shrink-0">
+                            {new Date(ann.created_at).toLocaleDateString()}
                           </span>
-                          {isAdmin && (
-                            <button
-                              onClick={() => setAnnouncementToDelete(ann)}
-                              className="px-3 py-1.5 rounded-xl bg-rose-50 text-rose-700 font-bold hover:bg-rose-100 cursor-pointer transition"
-                            >
-                              Delete
-                            </button>
-                          )}
                         </div>
+                        <p className="text-xs text-stone-600 font-medium leading-relaxed whitespace-pre-line">
+                          {ann.content}
+                        </p>
                       </div>
-                    ))}
+
+                      <div className="flex items-center justify-between pt-3 border-t border-stone-100 text-xs">
+                        <span className="font-mono text-[10px] text-stone-400 font-bold">
+                          ID: #{ann.id}
+                        </span>
+                        {isAdmin && (
+                          <button
+                            onClick={() => setAnnouncementToDelete(ann)}
+                            className="px-3 py-1.5 rounded-xl bg-rose-50 text-rose-700 font-bold hover:bg-rose-100 cursor-pointer transition"
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
-          ) : activeTab === "messages" ? (
+          )}
+          {activeTab === "messages" && (
             /* LIVE MESSAGING CHAT VIEW */
             <div className="bg-white border border-orange-200/80 rounded-3xl p-6 shadow-sm flex flex-col md:flex-row gap-6 min-h-[580px] animate-in fade-in duration-200">
               {/* CONTACTS LIST */}
@@ -3457,16 +3498,14 @@ export default function DashboardPage() {
                           <div
                             key={u.id}
                             onClick={() => setSelectedChatUser(u)}
-                            className={`p-3 rounded-2xl cursor-pointer transition flex items-center gap-3 border ${
-                              isSelected
+                            className={`p-3 rounded-2xl cursor-pointer transition flex items-center gap-3 border ${isSelected
                                 ? "bg-orange-600 text-white border-orange-600 shadow-md"
                                 : "bg-stone-50 hover:bg-orange-50 border-stone-200 text-stone-900"
-                            }`}
+                              }`}
                           >
                             <div
-                              className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 ${
-                                isSelected ? "bg-white text-orange-600" : "bg-orange-100 text-orange-800"
-                              }`}
+                              className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 ${isSelected ? "bg-white text-orange-600" : "bg-orange-100 text-orange-800"
+                                }`}
                             >
                               {(u.full_name || u.username)[0].toUpperCase()}
                             </div>
@@ -3562,11 +3601,10 @@ export default function DashboardPage() {
                           className={`flex flex-col ${isMe ? "items-end" : "items-start"}`}
                         >
                           <div
-                            className={`max-w-md px-4 py-2.5 rounded-2xl text-xs font-medium shadow-sm leading-relaxed ${
-                              isMe
+                            className={`max-w-md px-4 py-2.5 rounded-2xl text-xs font-medium shadow-sm leading-relaxed ${isMe
                                 ? "bg-orange-600 text-white rounded-br-none"
                                 : "bg-white text-stone-800 border border-orange-200/80 rounded-bl-none"
-                            }`}
+                              }`}
                           >
                             <p className="font-bold text-[10px] mb-0.5 opacity-80">
                               {isMe ? "You" : msg.sender_name}
@@ -3648,7 +3686,8 @@ export default function DashboardPage() {
                 </form>
               </div>
             </div>
-          ) : activeTab === "users" ? (
+          )}
+          {activeTab === "users" && (
             /* USERS MANAGEMENT VIEW */
             <div className="space-y-6 animate-in fade-in duration-200">
               {/* CONTROLS */}
@@ -3680,11 +3719,11 @@ export default function DashboardPage() {
                     <p className="text-xs font-bold text-stone-600">Loading registered users from database...</p>
                   </div>
                 ) : usersList.filter((u) =>
-                    searchUser === "" ||
-                    u.username.toLowerCase().includes(searchUser.toLowerCase()) ||
-                    u.full_name.toLowerCase().includes(searchUser.toLowerCase()) ||
-                    u.phone_number.includes(searchUser)
-                  ).length === 0 ? (
+                  searchUser === "" ||
+                  u.username.toLowerCase().includes(searchUser.toLowerCase()) ||
+                  u.full_name.toLowerCase().includes(searchUser.toLowerCase()) ||
+                  u.phone_number.includes(searchUser)
+                ).length === 0 ? (
                   <div className="text-center py-16">
                     <p className="text-stone-500 text-sm font-bold">No registered users found.</p>
                   </div>
@@ -3727,11 +3766,10 @@ export default function DashboardPage() {
                                 <select
                                   value={u.role}
                                   onChange={(e) => handleUpdateUserRole(u.id, e.target.value)}
-                                  className={`px-3 py-1.5 rounded-xl text-xs font-extrabold uppercase border focus:outline-none cursor-pointer transition ${
-                                    (u.role || "").toLowerCase() === "admin"
+                                  className={`px-3 py-1.5 rounded-xl text-xs font-extrabold uppercase border focus:outline-none cursor-pointer transition ${(u.role || "").toLowerCase() === "admin"
                                       ? "bg-purple-50 text-purple-700 border-purple-300"
                                       : "bg-emerald-50 text-emerald-700 border-emerald-300"
-                                  }`}
+                                    }`}
                                 >
                                   <option value="customer">CUSTOMER</option>
                                   <option value="Admin">ADMIN</option>
@@ -3759,196 +3797,236 @@ export default function DashboardPage() {
                 )}
               </div>
             </div>
-          ) : (
-            /* DASHBOARD OVERVIEW VIEW */
-            <div className="space-y-6">
-              {/* WELCOME BANNER (12-column grid full span) */}
-              <div className="grid grid-cols-12 gap-6">
-                <div className="col-span-12 bg-gradient-to-r from-orange-600 via-amber-600 to-orange-700 text-white border border-orange-500/30 rounded-3xl p-6 relative overflow-hidden shadow-xl shadow-orange-600/10">
-                  <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div>
-                      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 text-white text-xs font-semibold mb-3">
-                        🍩 WholesomeTreats Dashboard
-                      </div>
-                      <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
-                        Welcome back, {user?.username || "Admin"}!
-                      </h1>
-                      <p className="text-orange-100 text-xs sm:text-sm mt-1">
-                        Delight in every bite — manage products, orders, and customer insights.
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="text-right hidden sm:block bg-black/10 px-4 py-2 rounded-2xl backdrop-blur-sm border border-white/10">
-                        <p className="text-[10px] text-orange-200 uppercase font-semibold">System Date</p>
-                        <p className="text-sm font-mono text-white font-bold">
-                          {new Date().toLocaleDateString()}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
+          )}
+          {/* ANALYTICS TAB - Admin Only */}
+          {activeTab === "analytics" && isAdmin && (
+            <div className="p-6 space-y-8">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-black text-stone-900 flex items-center gap-2">
+                    <span>&#x1F4CA;</span> Analytics
+                  </h1>
+                  <p className="text-xs text-stone-500 font-medium mt-0.5">
+                    Business insights based on completed orders
+                  </p>
                 </div>
-              </div>
-
-              {/* KPI METRIC CARDS (12-Column Grid: 4 cards) */}
-              <div className="grid grid-cols-12 gap-6">
-                {/* KPI 1 */}
-                <div className="col-span-12 sm:col-span-6 lg:col-span-3 bg-white border border-orange-200/80 rounded-2xl p-5 shadow-sm hover:shadow-md hover:border-orange-400 transition duration-300">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-bold text-stone-500">Total Revenue</span>
-                    <span className="w-9 h-9 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center text-base">
-                      💵
-                    </span>
-                  </div>
-                  <div className="flex items-baseline justify-between">
-                    <span className="text-2xl font-black text-stone-900">₱24,850.00</span>
-                    <span className="text-xs text-emerald-600 font-bold flex items-center gap-0.5">
-                      ↑ +12.5%
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-stone-400 mt-2">vs. previous month (₱22,080)</p>
-                </div>
-
-                {/* KPI 2 */}
-                <div className="col-span-12 sm:col-span-6 lg:col-span-3 bg-white border border-orange-200/80 rounded-2xl p-5 shadow-sm hover:shadow-md hover:border-orange-400 transition duration-300">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-bold text-stone-500">Active Orders</span>
-                    <span className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center text-base">
-                      📦
-                    </span>
-                  </div>
-                  <div className="flex items-baseline justify-between">
-                    <span className="text-2xl font-black text-stone-900">142</span>
-                    <span className="text-xs text-orange-600 font-bold flex items-center gap-0.5">
-                      ↑ +8.2%
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-stone-400 mt-2">18 pending fulfillment</p>
-                </div>
-
-                {/* KPI 3 */}
-                <div
-                  onClick={() => setActiveTab("products")}
-                  className="col-span-12 sm:col-span-6 lg:col-span-3 bg-white border border-orange-200/80 rounded-2xl p-5 shadow-sm hover:shadow-md hover:border-orange-400 transition duration-300 cursor-pointer group"
+                <button
+                  onClick={fetchAnalytics}
+                  disabled={loadingAnalytics}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold shadow-md shadow-orange-600/30 transition cursor-pointer disabled:opacity-60"
                 >
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-bold text-stone-500 group-hover:text-orange-600 transition">
-                      Products Catalog →
-                    </span>
-                    <span className="w-9 h-9 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center text-base">
-                      🍰
-                    </span>
-                  </div>
-                  <div className="flex items-baseline justify-between">
-                    <span className="text-2xl font-black text-stone-900">
-                      {products.length > 0 ? products.length : 84}
-                    </span>
-                    <span className="text-xs text-emerald-600 font-bold">In Stock</span>
-                  </div>
-                  <p className="text-[11px] text-stone-400 mt-2">Click to manage products</p>
-                </div>
-
-                {/* KPI 4 */}
-                <div className="col-span-12 sm:col-span-6 lg:col-span-3 bg-white border border-orange-200/80 rounded-2xl p-5 shadow-sm hover:shadow-md hover:border-orange-400 transition duration-300">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-bold text-stone-500">Total Users</span>
-                    <span className="w-9 h-9 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center text-base">
-                      👥
-                    </span>
-                  </div>
-                  <div className="flex items-baseline justify-between">
-                    <span className="text-2xl font-black text-stone-900">1,250</span>
-                    <span className="text-xs text-emerald-600 font-bold">↑ +24 new</span>
-                  </div>
-                  <p className="text-[11px] text-stone-400 mt-2">Registered accounts</p>
-                </div>
+                  {loadingAnalytics ? (
+                    <div className="animate-spin w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full" />
+                  ) : (
+                    <span>&#x1F504;</span>
+                  )}
+                  Refresh
+                </button>
               </div>
-
-              {/* MAIN CONTENT ROW (12-Column Grid) */}
-              <div className="grid grid-cols-12 gap-6">
-                {/* RECENT ORDERS TABLE (col-span-12 lg:col-span-8) */}
-                <div className="col-span-12 lg:col-span-8 bg-white border border-orange-200/80 rounded-3xl p-6 shadow-sm flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between mb-5">
-                      <div>
-                        <h2 className="text-base font-black text-stone-900">Recent Orders</h2>
-                        <p className="text-xs text-stone-500">Latest customer purchases</p>
+              {loadingAnalytics ? (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {[...Array(4)].map((_, i) => (
+                    <div key={i} className="bg-white border border-orange-200/60 rounded-3xl p-6 shadow-sm animate-pulse">
+                      <div className="h-4 bg-stone-200 rounded-full w-1/3 mb-4" />
+                      <div className="space-y-2">
+                        {[...Array(5)].map((_, j) => (
+                          <div key={j} className="h-3 bg-stone-100 rounded-full w-full" />
+                        ))}
                       </div>
-                      <button className="text-xs text-orange-600 hover:text-orange-500 font-bold">
-                        View All →
-                      </button>
                     </div>
-
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs">
-                        <thead>
-                          <tr className="border-b border-stone-200 text-stone-400 font-semibold">
-                            <th className="pb-3">Order ID</th>
-                            <th className="pb-3">Customer</th>
-                            <th className="pb-3">Date</th>
-                            <th className="pb-3">Amount</th>
-                            <th className="pb-3">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-stone-100 text-stone-800">
-                          {recentOrders.map((ord) => (
-                            <tr key={ord.id} className="hover:bg-orange-50/50 transition">
-                              <td className="py-3.5 font-mono font-bold text-orange-600">
-                                {ord.id}
-                              </td>
-                              <td className="py-3.5 font-semibold">{ord.customer}</td>
-                              <td className="py-3.5 text-stone-500">{ord.date}</td>
-                              <td className="py-3.5 font-bold text-stone-900">{ord.amount}</td>
-                              <td className="py-3.5">
-                                <span
-                                  className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                                    ord.status === "Completed"
-                                      ? "bg-emerald-100 text-emerald-800"
-                                      : ord.status === "Processing"
-                                      ? "bg-orange-100 text-orange-800"
-                                      : "bg-amber-100 text-amber-800"
-                                  }`}
-                                >
-                                  {ord.status}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
+                  ))}
                 </div>
-
-                {/* SIDEBAR ANNOUNCEMENTS (col-span-12 lg:col-span-4) */}
-                <div className="col-span-12 lg:col-span-4 space-y-6">
-                  <div className="bg-white border border-orange-200/80 rounded-3xl p-6 shadow-sm">
-                    <div className="flex items-center justify-between mb-4">
-                      <h2 className="text-base font-black text-stone-900 flex items-center gap-2">
-                        <span>📢</span> Announcements
-                      </h2>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* 1. DAILY REVENUE TREND */}
+                  <div className="bg-white border border-orange-200/60 rounded-3xl p-6 shadow-sm col-span-1 lg:col-span-2">
+                    <div className="flex items-center justify-between mb-6">
+                      <div>
+                        <h2 className="text-base font-black text-stone-900 flex items-center gap-2">
+                          <span className="w-8 h-8 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center text-sm">&#x1F4C8;</span>
+                          Daily Revenue Trend
+                        </h2>
+                        <p className="text-xs text-stone-400 font-medium mt-0.5">Revenue from completed orders by day</p>
+                      </div>
+                      <span className="text-xs font-bold text-stone-400 bg-stone-100 px-3 py-1 rounded-full">{dailySales.length} days recorded</span>
                     </div>
-
-                    <div className="space-y-3">
-                      {dashboardAnnouncements.map((ann) => (
-                        <div
-                          key={ann.id}
-                          className="p-3.5 rounded-2xl bg-orange-50/60 border border-orange-100 hover:border-orange-300 transition"
-                        >
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-200 text-orange-900 font-bold">
-                              {ann.category}
-                            </span>
-                            <span className="text-[10px] text-stone-400">{ann.date}</span>
+                    {dailySales.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-12 text-stone-400">
+                        <span className="text-5xl mb-3">&#x1F4ED;</span>
+                        <p className="text-sm font-bold">No completed orders yet</p>
+                        <p className="text-xs mt-1">Revenue data will appear here once orders are completed</p>
+                      </div>
+                    ) : (() => {
+                      const sorted = [...dailySales].sort((a, b) => new Date(a.salesDate).getTime() - new Date(b.salesDate).getTime()).slice(-14);
+                      const maxRev = Math.max(...sorted.map(d => d.dailyRevenue), 1);
+                      return (
+                        <>
+                          <div className="flex items-end gap-1.5 h-44 overflow-x-auto pb-2">
+                            {sorted.map((day, idx) => {
+                              const barH = Math.max((day.dailyRevenue / maxRev) * 100, 4);
+                              const lbl = new Date(day.salesDate).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                              return (
+                                <div key={idx} className="flex flex-col items-center gap-1 flex-1 min-w-[38px] group relative">
+                                  <div className="absolute bottom-full mb-2 hidden group-hover:flex flex-col items-center z-10 pointer-events-none">
+                                    <div className="bg-stone-900 text-white text-[10px] font-bold rounded-lg px-2.5 py-1.5 whitespace-nowrap shadow-lg">
+                                      <div className="text-orange-400">&#x20B1;{day.dailyRevenue.toFixed(2)}</div>
+                                      <div className="text-stone-300">{day.totalOrders} order{day.totalOrders !== 1 ? "s" : ""}</div>
+                                    </div>
+                                    <div className="w-2 h-2 bg-stone-900 rotate-45 -mt-1 mx-auto" />
+                                  </div>
+                                  <div
+                                    className="w-full rounded-t-lg bg-gradient-to-t from-orange-500 to-orange-300 group-hover:from-orange-400 group-hover:to-orange-200 transition-all duration-300 cursor-pointer"
+                                    style={{ height: barH + "%" }}
+                                  />
+                                  <span className="text-[9px] text-stone-400 font-medium whitespace-nowrap">{lbl}</span>
+                                </div>
+                              );
+                            })}
                           </div>
-                          <p className="text-xs font-semibold text-stone-800">{ann.title}</p>
-                        </div>
-                      ))}
-                    </div>
+                          <div className="mt-5 pt-5 border-t border-stone-100 grid grid-cols-3 gap-4 text-center">
+                            <div>
+                              <p className="text-[10px] text-stone-400 font-semibold uppercase tracking-wider">Total Revenue</p>
+                              <p className="text-xl font-black text-orange-600">&#x20B1;{dailySales.reduce((s, d) => s + d.dailyRevenue, 0).toFixed(2)}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-stone-400 font-semibold uppercase tracking-wider">Completed Orders</p>
+                              <p className="text-xl font-black text-stone-900">{dailySales.reduce((s, d) => s + d.totalOrders, 0)}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-stone-400 font-semibold uppercase tracking-wider">Avg / Day</p>
+                              <p className="text-xl font-black text-stone-900">&#x20B1;{(dailySales.reduce((s, d) => s + d.dailyRevenue, 0) / dailySales.length).toFixed(2)}</p>
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
+
+                  {/* 2. TOP SELLING PRODUCTS */}
+                  <div className="bg-white border border-orange-200/60 rounded-3xl p-6 shadow-sm">
+                    <h2 className="text-base font-black text-stone-900 flex items-center gap-2 mb-5">
+                      <span className="w-8 h-8 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center text-sm">&#x1F3C6;</span>
+                      Top Selling Products
+                    </h2>
+                    {topProducts.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-8 text-stone-400">
+                        <span className="text-4xl mb-2">&#x1F3EA;</span>
+                        <p className="text-sm font-bold">No sales data yet</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {topProducts.map((prod, idx) => {
+                          const maxU = Math.max(...topProducts.map(p => p.totalUnitsSold), 1);
+                          const bw = (prod.totalUnitsSold / maxU) * 100;
+                          const medals = ["\uD83E\uDD47", "\uD83E\uDD48", "\uD83E\uDD49"];
+                          return (
+                            <div key={idx} className="space-y-1.5">
+                              <div className="flex items-center justify-between text-xs">
+                                <div className="flex items-center gap-2 font-semibold text-stone-800">
+                                  <span className="text-base">{medals[idx] || "#" + (idx + 1)}</span>
+                                  <span className="truncate max-w-[150px]">{prod.productName}</span>
+                                </div>
+                                <div className="text-right shrink-0 ml-2">
+                                  <span className="font-black text-stone-900">{prod.totalUnitsSold} units</span>
+                                  <span className="text-stone-400 ml-1.5">· &#x20B1;{prod.totalRevenueGenerated.toFixed(0)}</span>
+                                </div>
+                              </div>
+                              <div className="h-2.5 rounded-full bg-amber-100 overflow-hidden">
+                                <div
+                                  className="h-full rounded-full bg-gradient-to-r from-amber-500 to-orange-400 transition-all duration-700"
+                                  style={{ width: bw + "%" }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 3. ORDER FULFILLMENT RATE */}
+                  <div className="bg-white border border-orange-200/60 rounded-3xl p-6 shadow-sm">
+                    <h2 className="text-base font-black text-stone-900 flex items-center gap-2 mb-5">
+                      <span className="w-8 h-8 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center text-sm">&#x1F4CB;</span>
+                      Order Fulfillment Rate
+                    </h2>
+                    {fulfillmentRates.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-8 text-stone-400">
+                        <span className="text-4xl mb-2">&#x1F4CA;</span>
+                        <p className="text-sm font-bold">No order data yet</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3.5">
+                        {fulfillmentRates.map((rate, idx) => {
+                          const sc: Record<string, string> = {
+                            Completed: "bg-emerald-500",
+                            Approved: "bg-teal-500",
+                            Processing: "bg-orange-500",
+                            Delivering: "bg-blue-500",
+                            Pending: "bg-amber-400",
+                            Declined: "bg-rose-500",
+                            Cancelled: "bg-stone-400",
+                          };
+                          const col = sc[rate.status] ?? "bg-stone-400";
+                          return (
+                            <div key={idx} className="space-y-1">
+                              <div className="flex items-center justify-between text-xs">
+                                <div className="flex items-center gap-2">
+                                  <div className={"w-2.5 h-2.5 rounded-full " + col} />
+                                  <span className="font-semibold text-stone-700">{rate.status}</span>
+                                </div>
+                                <div>
+                                  <span className="font-black text-stone-900">{rate.orderCount}</span>
+                                  <span className="text-stone-400 ml-2">{Number(rate.percentage).toFixed(1)}%</span>
+                                </div>
+                              </div>
+                              <div className="h-2 rounded-full bg-stone-100 overflow-hidden">
+                                <div
+                                  className={"h-full rounded-full opacity-80 transition-all duration-700 " + col}
+                                  style={{ width: Math.min(Number(rate.percentage), 100) + "%" }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 4. PAYMENT METHODS */}
+                  <div className="bg-white border border-orange-200/60 rounded-3xl p-6 shadow-sm col-span-1 lg:col-span-2">
+                    <h2 className="text-base font-black text-stone-900 flex items-center gap-2 mb-5">
+                      <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center text-sm">&#x1F4B3;</span>
+                      Revenue by Payment Method
+                    </h2>
+                    {paymentMethods.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-8 text-stone-400">
+                        <span className="text-4xl mb-2">&#x1F4B3;</span>
+                        <p className="text-sm font-bold">No payment data yet</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                        {paymentMethods.map((pm, idx) => (
+                          <div key={idx} className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200/60 rounded-2xl p-5 hover:shadow-md transition">
+                            <div className="flex items-center justify-between mb-3">
+                              <span className="text-xs font-extrabold text-emerald-800 uppercase tracking-wider">{pm.paymentMethod}</span>
+                              <span className="w-8 h-8 rounded-xl bg-white border border-emerald-200 text-emerald-600 flex items-center justify-center text-sm shadow-sm">
+                                {pm.paymentMethod === "COD" ? "&#x1F3E0;" : pm.paymentMethod === "GCash" ? "&#x1F4F1;" : "&#x1F4B3;"}
+                              </span>
+                            </div>
+                            <p className="text-2xl font-black text-stone-900">&#x20B1;{pm.totalRevenue.toFixed(2)}</p>
+                            <p className="text-[11px] text-stone-500 font-medium mt-1">{pm.numberOfTransactions} transaction{pm.numberOfTransactions !== 1 ? "s" : ""}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                 </div>
-              </div>
+              )}
             </div>
           )}
+
         </main>
       </div>
 
@@ -4335,16 +4413,16 @@ export default function DashboardPage() {
                   itemsList.length > 0
                     ? itemsList
                     : [
-                        {
-                          id: 1,
-                          product_id: 1,
-                          product_name: "Chocolate Chip Cookies",
-                          flavor_name: "Original",
-                          quantity: 1,
-                          price_at_purchase: Math.max(45, Number(selectedOrderDetails.total_amount || 0) - 50) || 190.00,
-                          unit_type: "box",
-                        },
-                      ];
+                      {
+                        id: 1,
+                        product_id: 1,
+                        product_name: "Chocolate Chip Cookies",
+                        flavor_name: "Original",
+                        quantity: 1,
+                        price_at_purchase: Math.max(45, Number(selectedOrderDetails.total_amount || 0) - 50) || 190.00,
+                        unit_type: "box",
+                      },
+                    ];
 
                 const itemsSubtotal = finalItems.reduce(
                   (sum, it) => sum + Number(it.quantity) * Number(it.price_at_purchase),

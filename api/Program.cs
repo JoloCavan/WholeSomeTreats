@@ -5,6 +5,7 @@ using API.UsersModule;
 using API.CartModule;
 using API.OrdersModule;
 using API.AnnouncementsModule;
+using API.AnalyticsModule; // Added this using directive
 using API.Security;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
@@ -111,6 +112,13 @@ builder.Services.AddScoped<IAnnouncementRepository, AnnouncementRepository>(sp =
 {
     var myCon = sp.GetRequiredService<MyCon>();
     return new AnnouncementRepository(myCon);
+});
+
+// --> New Analytics Repository Registration <--
+builder.Services.AddScoped<IAnalyticsRepository, AnalyticsRepository>(sp =>
+{
+    var myCon = sp.GetRequiredService<MyCon>();
+    return new AnalyticsRepository(myCon);
 });
 
 // 6. Configure CORS for React integration later

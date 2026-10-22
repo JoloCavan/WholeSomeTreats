@@ -823,12 +823,11 @@ export default function DashboardPage() {
     try {
       const token = localStorage.getItem("token");
       const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
-      const base = "http://localhost:5272";
       const [r1, r2, r3, r4] = await Promise.all([
-        fetch(`${base}/api/analytics/daily-sales`, { headers }),
-        fetch(`${base}/api/analytics/top-products`, { headers }),
-        fetch(`${base}/api/analytics/fulfillment-rate`, { headers }),
-        fetch(`${base}/api/analytics/payment-methods`, { headers }),
+        fetch("/api/analytics/daily-sales", { headers }),
+        fetch("/api/analytics/top-products", { headers }),
+        fetch("/api/analytics/fulfillment-rate", { headers }),
+        fetch("/api/analytics/payment-methods", { headers }),
       ]);
       if (r1.ok) setDailySales(await r1.json());
       if (r2.ok) setTopProducts(await r2.json());
@@ -1701,6 +1700,8 @@ export default function DashboardPage() {
       fetchAnnouncements();
     } else if (activeTab === "users") {
       fetchUsers();
+    } else if (activeTab === "analytics") {
+      fetchAnalytics();
     }
   }, [activeTab]);
 

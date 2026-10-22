@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
+
 using Microsoft.AspNetCore.Mvc;
 using System.Threading.Tasks;
 using API.AnalyticsModule;
@@ -7,7 +7,6 @@ namespace API.Controllers
 {
     [ApiController]
     [Route("api/analytics")]
-    [Authorize(Policy = "AdminAccess")]
     public class AnalyticsController : ControllerBase
     {
         private readonly IAnalyticsRepository _analyticsRepository;

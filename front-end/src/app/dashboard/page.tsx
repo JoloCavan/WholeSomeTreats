@@ -642,6 +642,11 @@ export default function DashboardPage() {
   const [cartPaymentScreenshot, setCartPaymentScreenshot] = useState<string | null>(null);
   const [isCheckingOutCart, setIsCheckingOutCart] = useState<boolean>(false);
 
+  // Ratings State
+  const [productRatings, setProductRatings] = useState<Record<number, { avg: number; count: number; userStars: number }>>({});
+  const [ratingModal, setRatingModal] = useState<{ product: Product; stars: number; comment: string } | null>(null);
+  const [isSubmittingRating, setIsSubmittingRating] = useState(false);
+
   // Customer Pending and Declined Orders for Cart View
   const customerPendingOrders = useMemo(() => {
     if (isAdmin || !user) return [];
@@ -1722,6 +1727,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (activeTab === "products") {
       fetchProducts();
+      if (!isAdmin) fetchRatings();
     } else if (activeTab === "cart") {
       fetchCart();
     } else if (activeTab === "orders") {
@@ -1734,6 +1740,61 @@ export default function DashboardPage() {
       fetchAnalytics();
     }
   }, [activeTab]);
+
+  // Fetch ratings for all products (customer side only)
+  const fetchRatings = async (productList?: typeof products) => {
+    if (isAdmin) return;
+    const list = productList || products;
+    if (!list.length) return;
+    try {
+      const ratingMap: Record<number, { avg: number; count: number; userStars: number }> = {};
+      await Promise.all(
+        list.map(async (p) => {
+          try {
+            const res = await fetch(`/api/ratings/product/${p.id}`);
+            if (res.ok) {
+              const data: Array<{ userId: number; stars: number }> = await res.json();
+              if (data.length > 0) {
+                const avg = data.reduce((s, r) => s + r.stars, 0) / data.length;
+                const myRating = user ? data.find((r) => r.userId === user.id) : undefined;
+                ratingMap[p.id] = { avg, count: data.length, userStars: myRating?.stars ?? 0 };
+              } else {
+                ratingMap[p.id] = { avg: 0, count: 0, userStars: 0 };
+              }
+            }
+          } catch { ratingMap[p.id] = { avg: 0, count: 0, userStars: 0 }; }
+        })
+      );
+      setProductRatings(ratingMap);
+    } catch { }
+  };
+
+  const submitRating = async (productId: number, stars: number, comment: string) => {
+    if (!user) return;
+    setIsSubmittingRating(true);
+    try {
+      await fetch('/api/ratings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, username: user.username || user.full_name, productId, stars, comment }),
+      });
+      setProductRatings((prev) => ({
+        ...prev,
+        [productId]: {
+          avg: stars,
+          count: Math.max((prev[productId]?.count ?? 0) + (prev[productId]?.userStars ? 0 : 1), 1),
+          userStars: stars,
+        },
+      }));
+      showToast('success', '⭐ Rating submitted! Thank you.');
+    } catch {
+      showToast('error', 'Failed to submit rating. Try again.');
+    } finally {
+      setIsSubmittingRating(false);
+      setRatingModal(null);
+      setTimeout(() => fetchRatings(), 600);
+    }
+  };
 
   // 2. GET /api/products/{id}/variations
   const handleOpenVariations = async (product: Product) => {
@@ -2301,6 +2362,27 @@ export default function DashboardPage() {
 
                         <div className="p-5 space-y-2">
                           <h3 className="font-bold text-stone-900 text-base line-clamp-1">{p.name}</h3>
+                          {/* Star Rating Display - Customer Only */}
+                          {!isAdmin && (
+                            <div className="flex items-center gap-1.5">
+                              <div className="flex">
+                                {[1,2,3,4,5].map((s) => {
+                                  const rating = productRatings[p.id];
+                                  const avg = rating?.avg ?? 0;
+                                  return (
+                                    <span key={s} className={`text-sm ${s <= Math.round(avg) ? 'text-amber-400' : 'text-stone-200'}`}>★</span>
+                                  );
+                                })}
+                              </div>
+                              {productRatings[p.id]?.count ? (
+                                <span className="text-[10px] text-stone-500 font-medium">
+                                  {productRatings[p.id].avg.toFixed(1)} ({productRatings[p.id].count})
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-stone-400 font-medium">No ratings yet</span>
+                              )}
+                            </div>
+                          )}
                           <div className="flex items-baseline justify-between text-xs">
                             <span className="text-stone-500 font-medium">Unit: {p.unit_type}</span>
                             <span className="text-lg font-black text-orange-600">
@@ -2319,12 +2401,20 @@ export default function DashboardPage() {
                         </button>
 
                         {!isAdmin && (
-                          <button
-                            onClick={() => handleOpenOrderModal(p)}
-                            className="w-full py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-orange-600/20 active:scale-95"
-                          >
-                            <span>🛒 Add to Cart</span>
-                          </button>
+                          <>
+                            <button
+                              onClick={() => handleOpenOrderModal(p)}
+                              className="w-full py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-orange-600/20 active:scale-95"
+                            >
+                              <span>🛒 Add to Cart</span>
+                            </button>
+                            <button
+                              onClick={() => setRatingModal({ product: p, stars: productRatings[p.id]?.userStars || 0, comment: '' })}
+                              className="w-full py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-bold border border-amber-200 transition flex items-center justify-center gap-1.5 cursor-pointer"
+                            >
+                              <span>⭐ {productRatings[p.id]?.userStars ? 'Update Rating' : 'Rate Product'}</span>
+                            </button>
+                          </>
                         )}
 
                         {isAdmin && (

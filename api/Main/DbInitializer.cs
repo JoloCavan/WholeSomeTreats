@@ -158,6 +158,16 @@ namespace API.Main
                         content TEXT NOT NULL,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
+
+                    CREATE TABLE IF NOT EXISTS ratings (
+                        id SERIAL PRIMARY KEY,
+                        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        product_id INT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+                        stars INT NOT NULL CHECK (stars >= 1 AND stars <= 5),
+                        comment TEXT DEFAULT '',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE (user_id, product_id)
+                    );
                 ";
                 await cmd.ExecuteNonQueryAsync();
 

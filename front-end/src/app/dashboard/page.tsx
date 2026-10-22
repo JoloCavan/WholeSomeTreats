@@ -613,6 +613,15 @@ export default function DashboardPage() {
   const [checkoutProductId, setCheckoutProductId] = useState<number>(1);
   const [checkoutQuantity, setCheckoutQuantity] = useState<number>(1);
 
+  // Payment Screenshots Map: orderId -> base64 screenshot (kept in memory, also in sessionStorage)
+  const [paymentScreenshots, setPaymentScreenshots] = useState<Record<number, string>>(() => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const stored = sessionStorage.getItem('wt_payment_screenshots');
+      return stored ? JSON.parse(stored) : {};
+    } catch { return {}; }
+  });
+
   // Quick Order Modal State
   const [selectedProductForOrder, setSelectedProductForOrder] = useState<Product | null>(null);
   const [orderQuantity, setOrderQuantity] = useState<number>(1);
@@ -994,7 +1003,16 @@ export default function DashboardPage() {
     let existingOrders = loadStoredOrders();
     saveStoredOrders([newOrder, ...existingOrders]);
 
+    // Store payment screenshot in dedicated map (survives fetchOrders re-sync)
+    if (cartPaymentScreenshot) {
+      const updated = { ...paymentScreenshots, [newOrderId]: cartPaymentScreenshot };
+      setPaymentScreenshots(updated);
+      try { sessionStorage.setItem('wt_payment_screenshots', JSON.stringify(updated)); } catch { }
+    }
+
     await handleClearCart();
+    setCartPaymentScreenshot(null);
+    setCartPaymentMethod("COD");
     setIsCheckingOutCart(false);
     await fetchOrders();
     showToast("success", "🎉 Order placed! Waiting for bakery approval right here in your Cart.");
@@ -1043,6 +1061,12 @@ export default function DashboardPage() {
               }
               if (lo.customer_address) {
                 existing.customer_address = lo.customer_address;
+              }
+              if (lo.payment_method && lo.payment_method !== "COD") {
+                existing.payment_method = lo.payment_method;
+              }
+              if (lo.payment_screenshot) {
+                existing.payment_screenshot = lo.payment_screenshot;
               }
               if ((!existing.items || existing.items.length === 0) && lo.items && lo.items.length > 0) {
                 existing.items = lo.items;
@@ -4415,7 +4439,7 @@ export default function DashboardPage() {
       {/* ORDER DETAILS MODAL */}
       {selectedOrderDetails && (
         <div className="fixed inset-0 bg-stone-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white border border-orange-200 rounded-3xl p-6 w-full max-w-lg shadow-2xl animate-in fade-in zoom-in duration-200 space-y-4">
+          <div className="bg-white border border-orange-200 rounded-3xl p-6 w-full max-w-lg shadow-2xl animate-in fade-in zoom-in duration-200 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-stone-100">
               <div>
                 <h3 className="text-lg font-black text-stone-900">Order Details</h3>
@@ -4462,14 +4486,14 @@ export default function DashboardPage() {
                   <p className="font-semibold">{selectedOrderDetails.decline_reason || "No specific reason provided."}</p>
                 </div>
               )}
-              {selectedOrderDetails.payment_screenshot && (
+              {(paymentScreenshots[selectedOrderDetails.id] || selectedOrderDetails.payment_screenshot) && (
                 <div className="col-span-2 sm:col-span-3 space-y-1.5">
                   <span className="text-stone-400 font-bold uppercase text-[10px] block">💳 Payment Proof</span>
                   <img
-                    src={selectedOrderDetails.payment_screenshot}
+                    src={paymentScreenshots[selectedOrderDetails.id] || selectedOrderDetails.payment_screenshot!}
                     alt="Payment screenshot"
                     className="w-full max-h-60 object-contain rounded-2xl border border-orange-200 shadow-sm cursor-pointer"
-                    onClick={() => window.open(selectedOrderDetails.payment_screenshot, '_blank')}
+                    onClick={() => window.open(paymentScreenshots[selectedOrderDetails.id] || selectedOrderDetails.payment_screenshot, '_blank')}
                     title="Click to view full size"
                   />
                 </div>

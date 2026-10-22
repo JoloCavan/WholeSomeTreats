@@ -2047,6 +2047,7 @@ export default function DashboardPage() {
     { id: "announcements", label: "Announcements", icon: "📢" },
     { id: "messages", label: "Messages", icon: "💬" },
     ...(isAdmin ? [{ id: "users", label: "Users", icon: "👥" }] : []),
+    ...(isAdmin ? [{ id: "analytics", label: "Analytics", icon: "📊" }] : []),
   ];
 
   const recentOrders = [

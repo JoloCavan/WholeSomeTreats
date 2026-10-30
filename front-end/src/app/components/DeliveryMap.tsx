@@ -102,6 +102,12 @@ function LeafletMap({ lat, lng, address, readOnly, onLocationChange }: Props) {
       mapRef.current    = map;
       markerRef.current = marker;
       setMapReady(true);
+
+      // Emit initial position so parent always has valid coordinates
+      // (geocoding may fail for barangay-level addresses)
+      if (!readOnly) {
+        onLocationChange?.({ lat: defaultLat, lng: defaultLng });
+      }
     });
 
     return () => {

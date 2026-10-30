@@ -1018,6 +1018,14 @@ export default function DashboardPage() {
       payment_screenshot: cartPaymentScreenshot || undefined,
       status: "Pending",
       created_at: new Date().toISOString(),
+      // Delivery location fields
+      contact_number: cartContactNumber || undefined,
+      zip_code: cartZipCode || undefined,
+      landmark: cartLandmark || undefined,
+      delivery_instructions: cartDeliveryInstructions || undefined,
+      lat: cartLat ?? undefined,
+      lng: cartLng ?? undefined,
+      location_confirmed: locationConfirmed,
       items: cart.map((item, idx) => ({
         id: Date.now() + idx,
         order_id: newOrderId,
@@ -3259,10 +3267,15 @@ export default function DashboardPage() {
                                   lng={cartLng}
                                   onLocationChange={(loc) => { setCartLat(loc.lat); setCartLng(loc.lng); setLocationConfirmed(false); }}
                                 />
+                                {!cartLat && (
+                                  <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 font-medium">
+                                    📍 Location not auto-detected. Drag the pin or click <b>Use My Location</b> to set your exact coordinates.
+                                  </p>
+                                )}
                                 {!locationConfirmed ? (
                                   <button type="button"
-                                    onClick={() => { if(cartLat && cartLng) { setLocationConfirmed(true); } else { setLocationConfirmed(true); } }}
-                                    className="w-full py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer transition flex items-center justify-center gap-1.5">
+                                    onClick={() => { if(cartLat && cartLng) { setLocationConfirmed(true); } else { showToast("error", "📍 Location not found. Please drag the pin to your exact delivery location, or click \"Use My Location\"."); } }}
+                                    className={`w-full py-2 rounded-xl text-xs font-bold cursor-pointer transition flex items-center justify-center gap-1.5 ${!cartLat ? "bg-stone-200 text-stone-500 cursor-not-allowed" : "bg-emerald-600 hover:bg-emerald-500 text-white"}`}>
                                     ✅ Confirm This Location
                                   </button>
                                 ) : (

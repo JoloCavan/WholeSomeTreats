@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
 namespace API.OrdersModule
@@ -38,6 +39,28 @@ namespace API.OrdersModule
         [JsonPropertyName("decline_reason")]
         public string? DeclineReason { get; set; }
 
+        // Delivery location fields
+        [JsonPropertyName("contact_number")]
+        public string ContactNumber { get; set; } = string.Empty;
+
+        [JsonPropertyName("zip_code")]
+        public string ZipCode { get; set; } = string.Empty;
+
+        [JsonPropertyName("landmark")]
+        public string Landmark { get; set; } = string.Empty;
+
+        [JsonPropertyName("delivery_instructions")]
+        public string DeliveryInstructions { get; set; } = string.Empty;
+
+        [JsonPropertyName("lat")]
+        public double? Lat { get; set; }
+
+        [JsonPropertyName("lng")]
+        public double? Lng { get; set; }
+
+        [JsonPropertyName("location_confirmed")]
+        public bool LocationConfirmed { get; set; }
+
         [JsonPropertyName("items")]
         public List<OrderItemDetail> Items { get; set; } = new List<OrderItemDetail>();
     }
@@ -67,5 +90,41 @@ namespace API.OrdersModule
 
         [JsonPropertyName("price_at_purchase")]
         public decimal PriceAtPurchase { get; set; }
+    }
+
+    public class CreateOrderRequest
+    {
+        [JsonPropertyName("cart_items")]
+        public List<CartItemSummary> CartItems { get; set; } = new();
+
+        [JsonPropertyName("payment_method")]
+        public string PaymentMethod { get; set; } = "COD";
+
+        [JsonPropertyName("customer_address")]
+        public string CustomerAddress { get; set; } = string.Empty;
+
+        [JsonPropertyName("delivery_date")]
+        public string DeliveryDate { get; set; } = string.Empty;
+
+        [JsonPropertyName("contact_number")]
+        public string ContactNumber { get; set; } = string.Empty;
+
+        [JsonPropertyName("zip_code")]
+        public string ZipCode { get; set; } = string.Empty;
+
+        [JsonPropertyName("landmark")]
+        public string Landmark { get; set; } = string.Empty;
+
+        [JsonPropertyName("delivery_instructions")]
+        public string DeliveryInstructions { get; set; } = string.Empty;
+
+        [JsonPropertyName("lat")]
+        public double? Lat { get; set; }
+
+        [JsonPropertyName("lng")]
+        public double? Lng { get; set; }
+
+        [JsonPropertyName("location_confirmed")]
+        public bool LocationConfirmed { get; set; }
     }
 }

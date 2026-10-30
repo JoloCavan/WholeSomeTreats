@@ -1,4 +1,6 @@
 ﻿"use client";
+import PhilippineAddressSelector from "@/app/components/PhilippineAddressSelector";
+import DeliveryMap, { LocationResult } from "@/app/components/DeliveryMap";
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
@@ -44,6 +46,13 @@ export interface Order {
   status: string;
   created_at: string;
   decline_reason?: string;
+  contact_number?: string;
+  zip_code?: string;
+  landmark?: string;
+  delivery_instructions?: string;
+  lat?: number | null;
+  lng?: number | null;
+  location_confirmed?: boolean;
   items?: OrderItem[];
 }
 
@@ -641,6 +650,13 @@ export default function DashboardPage() {
   const [cartPaymentMethod, setCartPaymentMethod] = useState<string>("COD");
   const [cartPaymentScreenshot, setCartPaymentScreenshot] = useState<string | null>(null);
   const [isCheckingOutCart, setIsCheckingOutCart] = useState<boolean>(false);
+  const [cartContactNumber, setCartContactNumber] = useState<string>("");
+  const [cartZipCode, setCartZipCode] = useState<string>("");
+  const [cartLandmark, setCartLandmark] = useState<string>("");
+  const [cartDeliveryInstructions, setCartDeliveryInstructions] = useState<string>("");
+  const [cartLat, setCartLat] = useState<number | null>(null);
+  const [cartLng, setCartLng] = useState<number | null>(null);
+  const [locationConfirmed, setLocationConfirmed] = useState<boolean>(false);
 
   // Ratings State
   const [productRatings, setProductRatings] = useState<Record<number, { avg: number; count: number; userStars: number }>>({});
@@ -956,6 +972,13 @@ export default function DashboardPage() {
       deliveryDate: combinedDeliveryDateTime,
       paymentMethod: cartPaymentMethod,
       paymentScreenshot: cartPaymentScreenshot || null,
+      contactNumber: cartContactNumber,
+      zipCode: cartZipCode,
+      landmark: cartLandmark,
+      deliveryInstructions: cartDeliveryInstructions,
+      lat: cartLat,
+      lng: cartLng,
+      locationConfirmed: locationConfirmed,
       items: cart.map((item) => ({
         productId: item.product_id,
         variationId: item.variation_id || null,
@@ -3190,15 +3213,65 @@ export default function DashboardPage() {
                         )}
 
                         <div className="border-t border-stone-100 pt-3 space-y-3">
-                          <div>
-                            <label className="block text-stone-700 font-bold mb-1">Delivery Address</label>
-                            <input
-                              type="text"
-                              value={cartDeliveryAddress}
-                              onChange={(e) => setCartDeliveryAddress(e.target.value)}
-                              placeholder="Enter your delivery address..."
-                              className="w-full px-3.5 py-2.5 rounded-xl bg-orange-50/40 border border-orange-200 text-stone-900 focus:outline-none focus:border-orange-500 font-medium text-xs"
-                            />
+                          {/* ── Full Delivery Address Form ── */}
+                          <div className="space-y-2">
+                            <p className="text-stone-700 font-bold flex items-center gap-1.5">📍 Delivery Address</p>
+                            {/* Contact */}
+                            <div>
+                              <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wide mb-1">Contact Number</label>
+                              <input type="tel" value={cartContactNumber} onChange={e => setCartContactNumber(e.target.value)}
+                                placeholder="+63 912 345 6789"
+                                className="w-full px-3 py-2 rounded-xl border border-orange-200 bg-white text-stone-900 text-xs font-medium focus:outline-none focus:border-orange-500 placeholder-stone-400" />
+                            </div>
+                            {/* Cascading dropdowns via PhilippineAddressSelector */}
+                            <PhilippineAddressSelector onChange={(addr) => { setCartDeliveryAddress(addr); setLocationConfirmed(false); setCartLat(null); setCartLng(null); }} />
+                            {/* ZIP + Landmark */}
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wide mb-1">ZIP Code</label>
+                                <input type="text" value={cartZipCode} onChange={e => setCartZipCode(e.target.value)}
+                                  placeholder="2200"
+                                  className="w-full px-3 py-2 rounded-xl border border-orange-200 bg-white text-stone-900 text-xs font-medium focus:outline-none focus:border-orange-500 placeholder-stone-400" />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wide mb-1">Landmark <span className="font-normal normal-case text-stone-400">(optional)</span></label>
+                                <input type="text" value={cartLandmark} onChange={e => setCartLandmark(e.target.value)}
+                                  placeholder="Near SM City"
+                                  className="w-full px-3 py-2 rounded-xl border border-orange-200 bg-white text-stone-900 text-xs font-medium focus:outline-none focus:border-orange-500 placeholder-stone-400" />
+                              </div>
+                            </div>
+                            {/* Delivery Instructions */}
+                            <div>
+                              <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wide mb-1">Delivery Instructions <span className="font-normal normal-case text-stone-400">(optional)</span></label>
+                              <textarea value={cartDeliveryInstructions} onChange={e => setCartDeliveryInstructions(e.target.value)}
+                                rows={2} placeholder="e.g. Ring the gate bell, leave at the door..."
+                                className="w-full px-3 py-2 rounded-xl border border-orange-200 bg-white text-stone-900 text-xs font-medium focus:outline-none focus:border-orange-500 placeholder-stone-400 resize-none" />
+                            </div>
+                            {/* Interactive Map */}
+                            {cartDeliveryAddress && (
+                              <div className="space-y-2">
+                                <p className="text-[10px] font-bold text-stone-500 uppercase tracking-wide">📌 Confirm Delivery Location</p>
+                                <DeliveryMap
+                                  address={cartDeliveryAddress}
+                                  lat={cartLat}
+                                  lng={cartLng}
+                                  onLocationChange={(loc) => { setCartLat(loc.lat); setCartLng(loc.lng); setLocationConfirmed(false); }}
+                                />
+                                {!locationConfirmed ? (
+                                  <button type="button"
+                                    onClick={() => { if(cartLat && cartLng) { setLocationConfirmed(true); } else { setLocationConfirmed(true); } }}
+                                    className="w-full py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer transition flex items-center justify-center gap-1.5">
+                                    ✅ Confirm This Location
+                                  </button>
+                                ) : (
+                                  <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
+                                    <span className="text-xs font-bold text-emerald-700">✅ Location Confirmed</span>
+                                    <button type="button" onClick={() => setLocationConfirmed(false)}
+                                      className="text-[10px] text-stone-500 underline cursor-pointer">Change</button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
 
                           <div className="space-y-2.5">
@@ -3318,9 +3391,9 @@ export default function DashboardPage() {
 
                             <button
                               onClick={handleCheckoutCart}
-                              disabled={isCheckingOutCart || hasUnavailableCartItems || !cartDeliveryAddress.trim() || (cartPaymentMethod === "Online Payment" && !cartPaymentScreenshot)}
+                              disabled={isCheckingOutCart || hasUnavailableCartItems || !cartDeliveryAddress.trim() || !locationConfirmed || (cartPaymentMethod === "Online Payment" && !cartPaymentScreenshot)}
                               className={`w-full py-3.5 rounded-2xl font-bold text-xs shadow-xl transition flex items-center justify-center gap-2 ${
-                                hasUnavailableCartItems || !cartDeliveryAddress.trim() || (cartPaymentMethod === "Online Payment" && !cartPaymentScreenshot)
+                                hasUnavailableCartItems || !cartDeliveryAddress.trim() || !locationConfirmed || (cartPaymentMethod === "Online Payment" && !cartPaymentScreenshot)
                                   ? "bg-stone-300 text-stone-500 cursor-not-allowed shadow-none"
                                   : "bg-orange-600 hover:bg-orange-500 text-white shadow-orange-600/30 cursor-pointer active:scale-95"
                               }`}
@@ -4572,10 +4645,58 @@ export default function DashboardPage() {
               </div>
               <div>
                 <span className="text-stone-400 font-bold uppercase text-[10px] block">Address</span>
-                <span className="font-bold text-stone-900 truncate block" title={selectedOrderDetails.customer_address || "Olongapo City"}>
-                  {selectedOrderDetails.customer_address || "Olongapo City"}
+                <span className="font-bold text-stone-900 truncate block" title={selectedOrderDetails.customer_address || "N/A"}>
+                  {selectedOrderDetails.customer_address || "N/A"}
                 </span>
               </div>
+              {/* ── Delivery Location Panel (Admin) ── */}
+              {(selectedOrderDetails.contact_number || selectedOrderDetails.lat) && (
+                <div className="col-span-2 sm:col-span-3 space-y-3 border-t border-stone-100 pt-3">
+                  <p className="text-[10px] font-bold text-stone-500 uppercase tracking-wider">🗺️ Delivery Location Details</p>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    {selectedOrderDetails.contact_number && (
+                      <div>
+                        <span className="text-stone-400 font-bold uppercase text-[10px] block">Contact Number</span>
+                        <span className="font-bold text-stone-900">{selectedOrderDetails.contact_number}</span>
+                      </div>
+                    )}
+                    {selectedOrderDetails.zip_code && (
+                      <div>
+                        <span className="text-stone-400 font-bold uppercase text-[10px] block">ZIP Code</span>
+                        <span className="font-bold text-stone-900">{selectedOrderDetails.zip_code}</span>
+                      </div>
+                    )}
+                    {selectedOrderDetails.landmark && (
+                      <div>
+                        <span className="text-stone-400 font-bold uppercase text-[10px] block">Landmark</span>
+                        <span className="font-bold text-stone-900">{selectedOrderDetails.landmark}</span>
+                      </div>
+                    )}
+                  </div>
+                  {selectedOrderDetails.delivery_instructions && (
+                    <div>
+                      <span className="text-stone-400 font-bold uppercase text-[10px] block mb-0.5">Delivery Instructions</span>
+                      <p className="text-xs text-stone-700 bg-stone-50 rounded-xl px-3 py-2 border border-stone-100">{selectedOrderDetails.delivery_instructions}</p>
+                    </div>
+                  )}
+                  {selectedOrderDetails.lat && selectedOrderDetails.lng && (
+                    <div className="space-y-2">
+                      <DeliveryMap
+                        lat={selectedOrderDetails.lat}
+                        lng={selectedOrderDetails.lng}
+                        readOnly={true}
+                      />
+                      <a
+                        href={`https://maps.google.com/?q=${selectedOrderDetails.lat},${selectedOrderDetails.lng}`}
+                        target="_blank" rel="noopener noreferrer"
+                        className="flex items-center justify-center gap-1.5 w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition"
+                      >
+                        🗺️ Open in Google Maps
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
               {selectedOrderDetails.status === "Declined" && (
                 <div className="col-span-2 sm:col-span-3 p-3.5 bg-rose-50 border border-rose-200 rounded-2xl text-rose-800 text-xs shadow-sm">
                   <span className="font-bold block text-[10px] uppercase tracking-wider text-rose-900 mb-0.5">⚠️ Order Declined by Bakery</span>

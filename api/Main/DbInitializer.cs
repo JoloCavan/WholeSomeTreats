@@ -168,6 +168,15 @@ namespace API.Main
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         UNIQUE (user_id, product_id)
                     );
+
+                    -- Safe delivery location migrations (idempotent)
+                    ALTER TABLE orders ADD COLUMN IF NOT EXISTS contact_number VARCHAR(30) DEFAULT '';
+                    ALTER TABLE orders ADD COLUMN IF NOT EXISTS zip_code VARCHAR(10) DEFAULT '';
+                    ALTER TABLE orders ADD COLUMN IF NOT EXISTS landmark TEXT DEFAULT '';
+                    ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_instructions TEXT DEFAULT '';
+                    ALTER TABLE orders ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION;
+                    ALTER TABLE orders ADD COLUMN IF NOT EXISTS lng DOUBLE PRECISION;
+                    ALTER TABLE orders ADD COLUMN IF NOT EXISTS location_confirmed BOOLEAN DEFAULT FALSE;
                 ";
                 await cmd.ExecuteNonQueryAsync();
 

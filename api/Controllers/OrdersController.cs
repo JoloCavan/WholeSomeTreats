@@ -27,13 +27,15 @@ namespace API.Controllers
         private int GetCurrentUserId()
         {
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            return int.TryParse(userIdClaim, out int userId) ? userId : 1; // Default to user 1 for Owner/Admin testing
+            return int.TryParse(userIdClaim, out int userId) ? userId : 1;
         }
 
         [HttpPost("checkout")]
         public async Task<IActionResult> Checkout([FromBody] CheckoutRequest? request)
         {
-            int userId = (request != null && request.UserId.HasValue && request.UserId.Value > 0) ? request.UserId.Value : GetCurrentUserId();
+            int userId = (request != null && request.UserId.HasValue && request.UserId.Value > 0)
+                ? request.UserId.Value
+                : GetCurrentUserId();
 
             List<CartItemSummary> summaryItems = request?.Items ?? new List<CartItemSummary>();
 
@@ -53,74 +55,71 @@ namespace API.Controllers
             }
 
             if (!summaryItems.Any())
-            {
-                summaryItems = new List<CartItemSummary>
-                {
-                    new CartItemSummary { ProductId = 1, Quantity = 2, Price = 45.00m }
-                };
-            }
+                summaryItems = new List<CartItemSummary> { new CartItemSummary { ProductId = 1, Quantity = 2, Price = 45.00m } };
 
-            int orderId = await _ordersRepository.CreateOrderAsync(userId, summaryItems);
-            // Leave status as Pending so Admin can approve or decline the order
-
+            // Validate delivery date is Sunday
             if (!string.IsNullOrWhiteSpace(request?.DeliveryDate))
             {
                 var datePart = request.DeliveryDate.Trim().Split(' ')[0];
                 if (System.DateTime.TryParse(datePart, out var parsedDate) && parsedDate.DayOfWeek != System.DayOfWeek.Sunday)
-                {
                     return BadRequest(new { message = "Deliveries are only available on Sundays. Please select a Sunday." });
-                }
-                await _ordersRepository.UpdateDeliveryDateAsync(orderId, request.DeliveryDate);
             }
 
-            if (!string.IsNullOrWhiteSpace(request?.CustomerAddress))
+            var orderRequest = new CreateOrderRequest
             {
-                await _ordersRepository.UpdateCustomerAddressAsync(orderId, request.CustomerAddress);
-            }
+                CartItems            = summaryItems,
+                PaymentMethod        = request?.PaymentMethod ?? "COD",
+                CustomerAddress      = request?.CustomerAddress ?? string.Empty,
+                DeliveryDate         = request?.DeliveryDate ?? string.Empty,
+                ContactNumber        = request?.ContactNumber ?? string.Empty,
+                ZipCode              = request?.ZipCode ?? string.Empty,
+                Landmark             = request?.Landmark ?? string.Empty,
+                DeliveryInstructions = request?.DeliveryInstructions ?? string.Empty,
+                Lat                  = request?.Lat,
+                Lng                  = request?.Lng,
+                LocationConfirmed    = request?.LocationConfirmed ?? false,
+            };
 
-            return Ok(new { message = "Order placed successfully via Cash on Delivery!", orderId = orderId });
+            int orderId = await _ordersRepository.CreateOrderAsync(userId, orderRequest);
+            return Ok(new { message = "Order placed successfully!", orderId });
         }
 
         [HttpPost("direct")]
         public async Task<IActionResult> PlaceDirectOrder([FromBody] DirectOrderRequest request)
         {
-            int userId = (request != null && request.UserId.HasValue && request.UserId.Value > 0) ? request.UserId.Value : GetCurrentUserId();
+            int userId = (request != null && request.UserId.HasValue && request.UserId.Value > 0)
+                ? request.UserId.Value
+                : GetCurrentUserId();
 
             if (request == null || request.ProductId <= 0 || request.Quantity <= 0)
-            {
                 return BadRequest(new { message = "Invalid order details provided." });
-            }
 
-            var summaryItems = new List<CartItemSummary>
+            var orderRequest = new CreateOrderRequest
             {
-                new CartItemSummary
+                CartItems = new List<CartItemSummary>
                 {
-                    ProductId = request.ProductId,
-                    VariationId = request.VariationId,
-                    Quantity = request.Quantity,
-                    Price = request.Price > 0 ? request.Price : 45.00m
-                }
+                    new CartItemSummary
+                    {
+                        ProductId   = request.ProductId,
+                        VariationId = request.VariationId,
+                        Quantity    = request.Quantity,
+                        Price       = request.Price > 0 ? request.Price : 45.00m
+                    }
+                },
+                PaymentMethod        = "COD",
+                CustomerAddress      = request?.CustomerAddress ?? string.Empty,
+                DeliveryDate         = request?.DeliveryDate ?? string.Empty,
+                ContactNumber        = request?.ContactNumber ?? string.Empty,
+                ZipCode              = request?.ZipCode ?? string.Empty,
+                Landmark             = request?.Landmark ?? string.Empty,
+                DeliveryInstructions = request?.DeliveryInstructions ?? string.Empty,
+                Lat                  = request?.Lat,
+                Lng                  = request?.Lng,
+                LocationConfirmed    = request?.LocationConfirmed ?? false,
             };
 
-            int orderId = await _ordersRepository.CreateOrderAsync(userId, summaryItems);
-            // Leave status as Pending so Admin can approve or decline the order
-
-            if (!string.IsNullOrWhiteSpace(request?.DeliveryDate))
-            {
-                var datePart = request.DeliveryDate.Trim().Split(' ')[0];
-                if (System.DateTime.TryParse(datePart, out var parsedDate) && parsedDate.DayOfWeek != System.DayOfWeek.Sunday)
-                {
-                    return BadRequest(new { message = "Deliveries are only available on Sundays. Please select a Sunday." });
-                }
-                await _ordersRepository.UpdateDeliveryDateAsync(orderId, request.DeliveryDate);
-            }
-
-            if (!string.IsNullOrWhiteSpace(request?.CustomerAddress))
-            {
-                await _ordersRepository.UpdateCustomerAddressAsync(orderId, request.CustomerAddress);
-            }
-
-            return Ok(new { message = "Order placed successfully!", orderId = orderId });
+            int orderId = await _ordersRepository.CreateOrderAsync(userId, orderRequest);
+            return Ok(new { message = "Order placed successfully!", orderId });
         }
 
         [HttpGet("my-orders")]
@@ -137,11 +136,8 @@ namespace API.Controllers
             int userId = GetCurrentUserId();
             bool success = await _ordersRepository.CancelOrderAsync(orderId, userId);
             if (!success)
-            {
                 return BadRequest(new { message = "Cannot cancel order. Orders can only be cancelled while in Processing or Approved status." });
-            }
-
-            return Ok(new { message = "Order cancelled successfully.", orderId = orderId });
+            return Ok(new { message = "Order cancelled successfully.", orderId });
         }
 
         [HttpGet("admin/all")]
@@ -151,21 +147,14 @@ namespace API.Controllers
             return Ok(orders);
         }
 
-        public class StatusUpdateRequest
-        {
-            public string Status { get; set; } = string.Empty;
-        }
-
-        public class DeclineOrderRequest
-        {
-            public string Reason { get; set; } = string.Empty;
-        }
+        public class StatusUpdateRequest { public string Status { get; set; } = string.Empty; }
+        public class DeclineOrderRequest { public string Reason { get; set; } = string.Empty; }
 
         [HttpPut("admin/approve/{orderId}")]
         public async Task<IActionResult> ApproveOrder(int orderId)
         {
             await _ordersRepository.UpdateOrderStatusAsync(orderId, "Approved");
-            return Ok(new { message = "Order approved successfully.", orderId = orderId });
+            return Ok(new { message = "Order approved successfully.", orderId });
         }
 
         [HttpPut("admin/decline/{orderId}")]
@@ -173,7 +162,7 @@ namespace API.Controllers
         {
             string reason = string.IsNullOrWhiteSpace(request?.Reason) ? "Order declined by bakery." : request.Reason.Trim();
             await _ordersRepository.DeclineOrderAsync(orderId, reason);
-            return Ok(new { message = "Order declined successfully.", orderId = orderId, declineReason = reason });
+            return Ok(new { message = "Order declined successfully.", orderId, declineReason = reason });
         }
 
         [HttpPut("admin/status/{orderId}")]
@@ -181,7 +170,7 @@ namespace API.Controllers
         {
             string newStatus = request?.Status ?? "Processing";
             await _ordersRepository.UpdateOrderStatusAsync(orderId, newStatus);
-            return Ok(new { message = "Order status updated successfully.", status = newStatus });
+            return Ok(new { message = "Order status updated.", status = newStatus });
         }
 
         [HttpDelete("admin/delete/{orderId}")]

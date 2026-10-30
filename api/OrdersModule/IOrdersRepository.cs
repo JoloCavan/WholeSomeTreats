@@ -5,7 +5,7 @@ namespace API.OrdersModule
 {
     public interface IOrdersRepository
     {
-        Task<int> CreateOrderAsync(int userId, IEnumerable<CartItemSummary> cartItems);
+        Task<int> CreateOrderAsync(int userId, CreateOrderRequest request);
         Task<IEnumerable<Order>> GetAllOrdersAsync(); 
         Task<IEnumerable<Order>> GetOrdersByUserIdAsync(int userId); 
         Task UpdateOrderStatusAsync(int orderId, string status);

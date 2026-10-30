@@ -646,6 +646,8 @@ export default function DashboardPage() {
   const [productRatings, setProductRatings] = useState<Record<number, { avg: number; count: number; userStars: number }>>({});
   const [ratingModal, setRatingModal] = useState<{ product: Product; stars: number; comment: string } | null>(null);
   const [isSubmittingRating, setIsSubmittingRating] = useState(false);
+  const [reviewsModal, setReviewsModal] = useState<{ product: Product; ratings: Array<{ id: number; userId: number; username: string; stars: number; comment: string; createdAt: string }> } | null>(null);
+  const [loadingReviews, setLoadingReviews] = useState(false);
 
   // Customer Pending and Declined Orders for Cart View
   const customerPendingOrders = useMemo(() => {
@@ -1773,11 +1775,15 @@ export default function DashboardPage() {
     if (!user) return;
     setIsSubmittingRating(true);
     try {
-      await fetch('/api/ratings', {
+      const res = await fetch('/api/ratings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user.id, username: user.username || user.full_name, productId, stars, comment }),
       });
+      if (!res.ok) {
+        showToast('error', 'Could not save rating \u2014 please restart the server and try again.');
+        return;
+      }
       setProductRatings((prev) => ({
         ...prev,
         [productId]: {
@@ -1786,13 +1792,13 @@ export default function DashboardPage() {
           userStars: stars,
         },
       }));
-      showToast('success', '⭐ Rating submitted! Thank you.');
-    } catch {
-      showToast('error', 'Failed to submit rating. Try again.');
-    } finally {
-      setIsSubmittingRating(false);
+      showToast('success', 'u2B50 Rating saved!');
       setRatingModal(null);
       setTimeout(() => fetchRatings(), 600);
+    } catch {
+      showToast('error', 'Network error. Please try again.');
+    } finally {
+      setIsSubmittingRating(false);
     }
   };
 
@@ -5164,7 +5170,77 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
-      {/* RATING MODAL */}
+      {/* REVIEWS LIST MODAL */}
+      {reviewsModal && (
+        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-amber-200 rounded-3xl p-6 w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200 flex flex-col max-h-[88vh]">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-base font-black text-stone-900">Customer Reviews</h3>
+                <p className="text-xs text-stone-500 font-medium line-clamp-1 mt-0.5">{reviewsModal.product.name}</p>
+              </div>
+              <button onClick={() => setReviewsModal(null)} className="p-1.5 text-stone-400 hover:text-stone-700 font-bold cursor-pointer text-lg">x</button>
+            </div>
+
+            {/* Average summary row */}
+            {reviewsModal.ratings.length > 0 && (
+              <div className="flex items-center gap-3 mb-4 p-3 bg-amber-50 rounded-2xl border border-amber-100">
+                <span className="text-3xl font-black text-amber-500">
+                  {(reviewsModal.ratings.reduce((s,r) => s + r.stars, 0) / reviewsModal.ratings.length).toFixed(1)}
+                </span>
+                <div>
+                  <div className="flex">
+                    {[1,2,3,4,5].map(s => {
+                      const avg = reviewsModal.ratings.reduce((x,r) => x+r.stars,0)/reviewsModal.ratings.length;
+                      return <span key={s} className={`text-base ${s <= Math.round(avg) ? "text-amber-400" : "text-stone-200"}`}>&#9733;</span>;
+                    })}
+                  </div>
+                  <p className="text-[10px] text-stone-500 font-medium">{reviewsModal.ratings.length} review{reviewsModal.ratings.length !== 1 ? "s" : ""}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Review list */}
+            <div className="overflow-y-auto space-y-3 flex-1">
+              {loadingReviews ? (
+                <div className="flex items-center justify-center py-10">
+                  <div className="animate-spin w-6 h-6 border-4 border-amber-500 border-t-transparent rounded-full" />
+                </div>
+              ) : reviewsModal.ratings.length === 0 ? (
+                <div className="text-center py-10">
+                  <span className="text-3xl">&#9733;</span>
+                  <p className="text-sm font-bold text-stone-500 mt-2">No reviews yet</p>
+                  <p className="text-xs text-stone-400">Be the first to rate this product!</p>
+                </div>
+              ) : (
+                reviewsModal.ratings.map((r) => (
+                  <div key={r.id} className="p-3.5 bg-stone-50 rounded-2xl border border-stone-100 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-full bg-orange-100 flex items-center justify-center text-xs font-black text-orange-600">
+                          {(r.username || "?").charAt(0).toUpperCase()}
+                        </div>
+                        <span className="text-xs font-bold text-stone-800">{r.username}</span>
+                      </div>
+                      <div className="flex">
+                        {[1,2,3,4,5].map(s => (
+                          <span key={s} className={`text-xs ${s <= r.stars ? "text-amber-400" : "text-stone-200"}`}>&#9733;</span>
+                        ))}
+                      </div>
+                    </div>
+                    {r.comment && <p className="text-xs text-stone-600 leading-relaxed">{r.comment}</p>}
+                    <p className="text-[10px] text-stone-400">{r.createdAt ? new Date(r.createdAt).toLocaleDateString("en-PH", { year:"numeric", month:"short", day:"numeric" }) : ""}</p>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <button onClick={() => setReviewsModal(null)} className="mt-4 w-full py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold cursor-pointer transition">Close</button>
+          </div>
+        </div>
+      )}
+
+            {/* RATING MODAL */}
       {ratingModal && (
         <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white border border-amber-200 rounded-3xl p-7 w-full max-w-sm shadow-2xl animate-in fade-in zoom-in duration-200 space-y-5">

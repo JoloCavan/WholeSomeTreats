@@ -1,6 +1,7 @@
 ﻿"use client";
 import PhilippineAddressSelector from "@/app/components/PhilippineAddressSelector";
 import DeliveryMap, { LocationResult } from "@/app/components/DeliveryMap";
+import OrdersOverviewMap, { OrderPin } from "@/app/components/OrdersOverviewMap";
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
@@ -2169,6 +2170,7 @@ export default function DashboardPage() {
     { id: "messages", label: "Messages", icon: "💬" },
     ...(isAdmin ? [{ id: "users", label: "Users", icon: "👥" }] : []),
     ...(isAdmin ? [{ id: "analytics", label: "Analytics", icon: "📊" }] : []),
+    ...(isAdmin ? [{ id: "delivery-map", label: "Delivery Map", icon: "🗺️" }] : []),
   ];
 
   const recentOrders = [
@@ -3458,6 +3460,38 @@ export default function DashboardPage() {
                 </div>
               )}
 
+              {/* ORDERS STATUS FILTER TABS */}
+              {isAdmin && (
+                <div className="flex flex-wrap gap-2">
+                  {["All","Pending","Approved","Processing","Delivering","Completed","Declined","Cancelled"].map(status => {
+                    const count = status === "All" ? orders.length : orders.filter(o => o.status === status).length;
+                    const active = orderStatusFilter === status;
+                    const colors: Record<string,string> = {
+                      All: "bg-stone-900 text-white border-stone-900",
+                      Pending: "bg-amber-500 text-white border-amber-500",
+                      Approved: "bg-teal-600 text-white border-teal-600",
+                      Processing: "bg-orange-500 text-white border-orange-500",
+                      Delivering: "bg-blue-600 text-white border-blue-600",
+                      Completed: "bg-emerald-600 text-white border-emerald-600",
+                      Declined: "bg-rose-600 text-white border-rose-600",
+                      Cancelled: "bg-stone-500 text-white border-stone-500",
+                    };
+                    return (
+                      <button key={status} type="button"
+                        onClick={() => setOrderStatusFilter(status)}
+                        className={`px-3 py-1.5 rounded-xl text-[11px] font-bold border transition cursor-pointer flex items-center gap-1.5 ${
+                          active ? colors[status] : "bg-white text-stone-600 border-stone-200 hover:border-orange-300 hover:text-orange-700"
+                        }`}>
+                        {status}
+                        <span className={`px-1.5 py-0.5 rounded-lg text-[10px] font-black ${
+                          active ? "bg-white/20 text-white" : "bg-stone-100 text-stone-500"
+                        }`}>{count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
               {/* ORDERS TABLE VIEW */}
               {loadingOrders ? (
                 <div className="text-center py-16 bg-white border border-orange-200 rounded-3xl">
@@ -3475,9 +3509,9 @@ export default function DashboardPage() {
                     (user.full_name && o.customer_name?.toLowerCase() === user.full_name.toLowerCase()) ||
                     (user.username && o.customer_name?.toLowerCase() === user.username.toLowerCase());
                   if (!isUserMatch) return false;
-                  // Pending and Declined orders are displayed in Cart view until approved
                   if (o.status === "Pending" || o.status === "Declined") return false;
                 }
+                if (isAdmin && orderStatusFilter !== "All" && o.status !== orderStatusFilter) return false;
                 return true;
               }).length === 0 ? (
                 <div className="text-center py-16 bg-white border border-orange-200 rounded-3xl">
@@ -3505,6 +3539,7 @@ export default function DashboardPage() {
                             // Pending and Declined orders are displayed in Cart view until approved
                             if (o.status === "Pending" || o.status === "Declined") return false;
                           }
+                          if (isAdmin && orderStatusFilter !== "All" && o.status !== orderStatusFilter) return false;
                           return true;
                         })
                         .map((o) => {
@@ -4283,6 +4318,66 @@ export default function DashboardPage() {
             </div>
           )}
 
+        {/* ─── DELIVERY MAP TAB ─── */}
+        {activeTab === "delivery-map" && isAdmin && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            <div className="bg-white border border-orange-200/80 rounded-3xl p-6 shadow-sm space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-black text-stone-900">🗺️ Delivery Location Overview</h2>
+                  <p className="text-xs text-stone-500 mt-0.5">All confirmed customer order locations. Click any pin for details.</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {([["Pending","#f59e0b"],["Approved","#10b981"],["Processing","#f97316"],["Delivering","#3b82f6"],["Completed","#6b7280"],["Declined","#ef4444"]] as [string,string][]).map(([s,col])=>(
+                    <div key={s} className="flex items-center gap-1 text-[10px] font-bold">
+                      <div style={{width:10,height:10,borderRadius:"50%",background:col}} />
+                      <span className="text-stone-600">{s}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {(() => {
+                const mappedOrders = orders.filter(o => o.lat != null && o.lng != null);
+                const unmapped = orders.filter(o => o.lat == null || o.lng == null);
+                const pins: OrderPin[] = mappedOrders.map(o => ({
+                  orderId: o.id,
+                  customerName: o.customer_name || `Customer #${o.user_id}`,
+                  address: o.customer_address || "N/A",
+                  status: o.status,
+                  totalAmount: o.total_amount,
+                  lat: o.lat as number,
+                  lng: o.lng as number,
+                  contactNumber: o.contact_number,
+                  deliveryDate: o.delivery_date,
+                }));
+                return (
+                  <>
+                    <div className="flex flex-wrap gap-3">
+                      <div className="px-3 py-2 bg-orange-50 border border-orange-200 rounded-xl text-xs font-bold text-orange-700">
+                        📍 {mappedOrders.length} location{mappedOrders.length !== 1 ? "s" : ""} pinned
+                      </div>
+                      {unmapped.length > 0 && (
+                        <div className="px-3 py-2 bg-stone-100 border border-stone-200 rounded-xl text-xs text-stone-500">
+                          {unmapped.length} order{unmapped.length !== 1 ? "s" : ""} without GPS
+                        </div>
+                      )}
+                    </div>
+                    {pins.length > 0 ? (
+                      <OrdersOverviewMap pins={pins} />
+                    ) : (
+                      <div className="h-60 flex flex-col items-center justify-center text-center space-y-2 rounded-2xl bg-stone-50 border border-stone-200">
+                        <span className="text-3xl">🗺️</span>
+                        <p className="text-xs font-bold text-stone-500">No pinned locations yet.</p>
+                        <p className="text-[11px] text-stone-400">Orders placed with the delivery map will appear here.</p>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        )}
+
         </main>
       </div>
 
@@ -4649,52 +4744,23 @@ export default function DashboardPage() {
                   {selectedOrderDetails.customer_address || "N/A"}
                 </span>
               </div>
-              {/* ── Delivery Location Panel (Admin) ── */}
-              {(selectedOrderDetails.contact_number || selectedOrderDetails.lat) && (
-                <div className="col-span-2 sm:col-span-3 space-y-3 border-t border-stone-100 pt-3">
-                  <p className="text-[10px] font-bold text-stone-500 uppercase tracking-wider">🗺️ Delivery Location Details</p>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    {selectedOrderDetails.contact_number && (
-                      <div>
-                        <span className="text-stone-400 font-bold uppercase text-[10px] block">Contact Number</span>
-                        <span className="font-bold text-stone-900">{selectedOrderDetails.contact_number}</span>
-                      </div>
-                    )}
-                    {selectedOrderDetails.zip_code && (
-                      <div>
-                        <span className="text-stone-400 font-bold uppercase text-[10px] block">ZIP Code</span>
-                        <span className="font-bold text-stone-900">{selectedOrderDetails.zip_code}</span>
-                      </div>
-                    )}
-                    {selectedOrderDetails.landmark && (
-                      <div>
-                        <span className="text-stone-400 font-bold uppercase text-[10px] block">Landmark</span>
-                        <span className="font-bold text-stone-900">{selectedOrderDetails.landmark}</span>
-                      </div>
-                    )}
-                  </div>
-                  {selectedOrderDetails.delivery_instructions && (
-                    <div>
-                      <span className="text-stone-400 font-bold uppercase text-[10px] block mb-0.5">Delivery Instructions</span>
-                      <p className="text-xs text-stone-700 bg-stone-50 rounded-xl px-3 py-2 border border-stone-100">{selectedOrderDetails.delivery_instructions}</p>
-                    </div>
-                  )}
-                  {selectedOrderDetails.lat && selectedOrderDetails.lng && (
-                    <div className="space-y-2">
-                      <DeliveryMap
-                        lat={selectedOrderDetails.lat}
-                        lng={selectedOrderDetails.lng}
-                        readOnly={true}
-                      />
-                      <a
-                        href={`https://maps.google.com/?q=${selectedOrderDetails.lat},${selectedOrderDetails.lng}`}
-                        target="_blank" rel="noopener noreferrer"
-                        className="flex items-center justify-center gap-1.5 w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition"
-                      >
-                        🗺️ Open in Google Maps
-                      </a>
-                    </div>
-                  )}
+              {/* ── Delivery Info (inside grid) ── */}
+              {selectedOrderDetails.contact_number && (
+                <div>
+                  <span className="text-stone-400 font-bold uppercase text-[10px] block">Contact Number</span>
+                  <span className="font-bold text-stone-900">{selectedOrderDetails.contact_number}</span>
+                </div>
+              )}
+              {selectedOrderDetails.zip_code && (
+                <div>
+                  <span className="text-stone-400 font-bold uppercase text-[10px] block">ZIP Code</span>
+                  <span className="font-bold text-stone-900">{selectedOrderDetails.zip_code}</span>
+                </div>
+              )}
+              {selectedOrderDetails.landmark && (
+                <div>
+                  <span className="text-stone-400 font-bold uppercase text-[10px] block">Landmark</span>
+                  <span className="font-bold text-stone-900">{selectedOrderDetails.landmark}</span>
                 </div>
               )}
               {selectedOrderDetails.status === "Declined" && (
@@ -4716,6 +4782,35 @@ export default function DashboardPage() {
                 </div>
               )}
             </div>
+
+            {/* ── Full-width Delivery Map Panel ── */}
+            {(selectedOrderDetails.delivery_instructions || selectedOrderDetails.lat) && (
+              <div className="space-y-3 bg-orange-50/40 border border-orange-100 rounded-2xl p-4">
+                <p className="text-[10px] font-bold text-stone-500 uppercase tracking-wider">🗺️ Delivery Location</p>
+                {selectedOrderDetails.delivery_instructions && (
+                  <div>
+                    <span className="text-stone-400 font-bold uppercase text-[10px] block mb-0.5">Delivery Instructions</span>
+                    <p className="text-xs text-stone-700 bg-white rounded-xl px-3 py-2 border border-orange-100">{selectedOrderDetails.delivery_instructions}</p>
+                  </div>
+                )}
+                {selectedOrderDetails.lat && selectedOrderDetails.lng && (
+                  <div className="space-y-2">
+                    <DeliveryMap
+                      lat={selectedOrderDetails.lat}
+                      lng={selectedOrderDetails.lng}
+                      readOnly={true}
+                    />
+                    <a
+                      href={`https://maps.google.com/?q=${selectedOrderDetails.lat},${selectedOrderDetails.lng}`}
+                      target="_blank" rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-1.5 w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition shadow-md shadow-blue-600/20"
+                    >
+                      🗺️ Open in Google Maps
+                    </a>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="space-y-2">
               <h4 className="text-xs font-bold text-stone-700 uppercase tracking-wider">Purchased Items</h4>
@@ -5361,7 +5456,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-            {/* RATING MODAL */}
+{/* RATING MODAL */}
       {ratingModal && (
         <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white border border-amber-200 rounded-3xl p-7 w-full max-w-sm shadow-2xl animate-in fade-in zoom-in duration-200 space-y-5">

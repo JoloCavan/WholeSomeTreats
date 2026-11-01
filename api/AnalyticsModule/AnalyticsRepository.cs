@@ -18,7 +18,7 @@ namespace API.AnalyticsModule
                     COUNT(id) AS total_orders,
                     SUM(total_amount) AS daily_revenue
                 FROM orders
-                WHERE status = 'Completed'
+                WHERE status IN ('Approved', 'Processing', 'Delivering', 'Completed')
                 GROUP BY DATE(created_at)
                 ORDER BY sales_date DESC;";
 
@@ -41,7 +41,7 @@ namespace API.AnalyticsModule
                 FROM order_items oi
                 JOIN products p ON oi.product_id = p.id
                 JOIN orders o ON oi.order_id = o.id
-                WHERE o.status = 'Completed'
+                WHERE o.status IN ('Approved', 'Processing', 'Delivering', 'Completed')
                 GROUP BY p.id, p.name
                 ORDER BY total_units_sold DESC
                 LIMIT 5;";
@@ -62,7 +62,7 @@ namespace API.AnalyticsModule
                     COUNT(id) AS number_of_transactions,
                     SUM(total_amount) AS total_revenue
                 FROM orders
-                WHERE status = 'Completed'
+                WHERE status IN ('Approved', 'Processing', 'Delivering', 'Completed')
                 GROUP BY payment_method
                 ORDER BY total_revenue DESC;";
 
@@ -92,5 +92,6 @@ namespace API.AnalyticsModule
                 Percentage = Convert.ToDecimal(reader["percentage"])
             });
         }
+
     }
 }

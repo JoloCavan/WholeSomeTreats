@@ -37,6 +37,10 @@ function LeafletMap({ lat, lng, address, readOnly, onLocationChange }: Props) {
   const [geocoding, setGeocoding] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const debouncedAddress = useDebounce(address ?? "", 900);
+  // Track if the user has manually zoomed/panned — if yes, stop auto-panning
+  const userInteractedRef = useRef(false);
+  // Track whether the map has received its first real geocoded position
+  const geocodedOnceRef = useRef(false);
 
   const defaultLat = lat ?? 14.8387;   // Olongapo City default
   const defaultLng = lng ?? 120.2842;
@@ -88,13 +92,21 @@ function LeafletMap({ lat, lng, address, readOnly, onLocationChange }: Props) {
 
       const marker = L.marker([defaultLat, defaultLng], { draggable: !readOnly }).addTo(map);
 
+      // ── Reliable user-interaction detection via raw DOM events ──
+      // wheel = scroll-to-zoom, touchstart = pinch/tap; both are always user-initiated
+      const markInteracted = () => { userInteractedRef.current = true; };
+      containerRef.current!.addEventListener('wheel',      markInteracted, { passive: true, once: true });
+      containerRef.current!.addEventListener('touchstart', markInteracted, { passive: true, once: true });
+
       if (!readOnly) {
         marker.on("dragend", () => {
           const { lat, lng } = marker.getLatLng();
+          userInteractedRef.current = true;
           reverseGeocode({ lat, lng });
         });
         map.on("click", (e: any) => {
           marker.setLatLng(e.latlng);
+          userInteractedRef.current = true;
           reverseGeocode({ lat: e.latlng.lat, lng: e.latlng.lng });
         });
       }
@@ -103,34 +115,43 @@ function LeafletMap({ lat, lng, address, readOnly, onLocationChange }: Props) {
       markerRef.current = marker;
       setMapReady(true);
 
-      // Emit initial position so parent always has valid coordinates
-      // (geocoding may fail for barangay-level addresses)
+      // Defer initial coords so the async callback doesn't trigger a
+      // parent re-render while Leaflet is still initialising the DOM
       if (!readOnly) {
-        onLocationChange?.({ lat: defaultLat, lng: defaultLng });
+        setTimeout(() => { onLocationChange?.({ lat: defaultLat, lng: defaultLng }); }, 0);
       }
     });
 
     return () => {
       if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; }
+      // Clear Leaflet's internal container ID so React Strict Mode double-mount
+      // (and hot-reload) don't throw "Map container already initialized"
+      if (containerRef.current) {
+        delete (containerRef.current as any)._leaflet_id;
+      }
     };
   }, []);
 
-  // ── Move marker when lat/lng props change ──
+  // ── Move marker when lat/lng props change (NO setView — never reset user zoom) ──
   useEffect(() => {
     if (!mapReady || !markerRef.current || lat == null || lng == null) return;
     markerRef.current.setLatLng([lat, lng]);
-    mapRef.current?.setView([lat, lng], mapRef.current.getZoom() < 15 ? 15 : mapRef.current.getZoom());
+    // Do NOT call setView here — geocoding callback handles initial pan;
+    // calling setView on every prop update caused the auto-zoom-out bug.
   }, [lat, lng, mapReady]);
 
   // ── Auto-geocode when address string changes ──
   useEffect(() => {
     if (!mapReady || !debouncedAddress || readOnly) return;
-    if (lat != null && lng != null) return; // already have coords, don't override
+    if (geocodedOnceRef.current) return; // already geocoded — don't override user position
     setGeocoding(true);
     geocodeAddress(debouncedAddress).then((loc) => {
       if (loc && markerRef.current) {
+        geocodedOnceRef.current = true;
         markerRef.current.setLatLng([loc.lat, loc.lng]);
-        mapRef.current?.setView([loc.lat, loc.lng], 16);
+        if (!userInteractedRef.current) {
+          mapRef.current?.setView([loc.lat, loc.lng], 16);
+        }
         onLocationChange?.(loc);
       }
       setGeocoding(false);

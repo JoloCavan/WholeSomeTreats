@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import PhilippineAddressSelector from "@/app/components/PhilippineAddressSelector";
 import DeliveryMap, { LocationResult } from "@/app/components/DeliveryMap";
 import OrdersOverviewMap, { OrderPin } from "@/app/components/OrdersOverviewMap";
@@ -1084,7 +1084,15 @@ export default function DashboardPage() {
             status: o.status || o.Status || "Pending",
             decline_reason: o.decline_reason || o.declineReason || "",
             created_at: o.created_at || o.createdAt || new Date().toISOString(),
-            items: o.items || []
+            items: o.items || [],
+            // ── Delivery location fields ──
+            contact_number: o.contact_number || o.contactNumber || undefined,
+            zip_code: o.zip_code || o.zipCode || undefined,
+            landmark: o.landmark || undefined,
+            delivery_instructions: o.delivery_instructions || o.deliveryInstructions || undefined,
+            lat: o.lat ?? o.Lat ?? undefined,
+            lng: o.lng ?? o.Lng ?? undefined,
+            location_confirmed: o.location_confirmed ?? o.locationConfirmed ?? false,
           }));
 
           const map = new Map<number, Order>();
@@ -4350,8 +4358,10 @@ export default function DashboardPage() {
                 </div>
               </div>
               {(() => {
-                const mappedOrders = orders.filter(o => o.lat != null && o.lng != null);
-                const unmapped = orders.filter(o => o.lat == null || o.lng == null);
+                // Completed orders are removed from the delivery map (delivery done)
+                const activeForMap = orders.filter(o => o.status !== "Completed" && o.status !== "Declined" && o.status !== "Cancelled");
+                const mappedOrders = activeForMap.filter(o => o.lat != null && o.lng != null);
+                const unmapped = activeForMap.filter(o => o.lat == null || o.lng == null);
                 const pins: OrderPin[] = mappedOrders.map(o => ({
                   orderId: o.id,
                   customerName: o.customer_name || `Customer #${o.user_id}`,

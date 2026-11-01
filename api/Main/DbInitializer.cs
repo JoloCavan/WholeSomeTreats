@@ -169,6 +169,12 @@ namespace API.Main
                         UNIQUE (user_id, product_id)
                     );
 
+                    -- Safe core order column migrations (idempotent)
+                    ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_name TEXT DEFAULT '';
+                    ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_address TEXT DEFAULT '';
+                    ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_date TEXT DEFAULT '';
+                    ALTER TABLE orders ADD COLUMN IF NOT EXISTS decline_reason TEXT DEFAULT '';
+
                     -- Safe delivery location migrations (idempotent)
                     ALTER TABLE orders ADD COLUMN IF NOT EXISTS contact_number VARCHAR(30) DEFAULT '';
                     ALTER TABLE orders ADD COLUMN IF NOT EXISTS zip_code VARCHAR(10) DEFAULT '';

@@ -130,6 +130,14 @@ namespace API.Controllers
             return Ok(orders);
         }
 
+        // Fetch orders for a specific user by ID (used by customer-facing My Orders view)
+        [HttpGet("user/{userId}")]
+        public async Task<IActionResult> GetUserOrders(int userId)
+        {
+            var orders = await _ordersRepository.GetOrdersByUserIdAsync(userId);
+            return Ok(orders);
+        }
+
         [HttpPut("cancel/{orderId}")]
         public async Task<IActionResult> CancelOrder(int orderId)
         {

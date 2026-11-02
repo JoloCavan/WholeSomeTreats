@@ -82,15 +82,18 @@ namespace API.OrdersModule
 
                 var orderSql = @"
                     INSERT INTO orders 
-                        (user_id, total_amount, payment_method, status, created_at,
+                        (user_id, customer_name, total_amount, payment_method, status, created_at,
                          customer_address, delivery_date,
                          contact_number, zip_code, landmark, delivery_instructions,
                          lat, lng, location_confirmed)
-                    VALUES 
-                        (@userId, @total, @method, @status, NOW(),
-                         @address, @deliveryDate,
-                         @contactNumber, @zipCode, @landmark, @deliveryInstructions,
-                         @lat, @lng, @locationConfirmed)
+                    SELECT
+                        @userId,
+                        COALESCE(NULLIF(u.full_name,''), u.username, 'Customer #' || @userId),
+                        @total, @method, @status, NOW(),
+                        @address, @deliveryDate,
+                        @contactNumber, @zipCode, @landmark, @deliveryInstructions,
+                        @lat, @lng, @locationConfirmed
+                    FROM users u WHERE u.id = @userId
                     RETURNING id";
 
                 int orderId = 0;

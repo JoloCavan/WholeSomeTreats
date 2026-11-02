@@ -1069,7 +1069,12 @@ export default function DashboardPage() {
     let localOrders = loadStoredOrders();
 
     try {
-      const res = await fetch("/api/orders/admin/all");
+      // Admins fetch all orders; customers only fetch their own
+      const endpoint = isAdmin
+        ? "/api/orders/admin/all"
+        : user?.id ? `/api/orders/user/${user.id}` : null;
+      if (!endpoint) { setOrders([]); setLoadingOrders(false); return; }
+      const res = await fetch(endpoint);
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
@@ -1097,10 +1102,14 @@ export default function DashboardPage() {
 
           const map = new Map<number, Order>();
           formatted.forEach((o: Order) => map.set(o.id, o));
-          localOrders.forEach((lo: Order) => {
+          // For customers, only merge localStorage orders belonging to THIS user
+          const relevantLocal = isAdmin ? localOrders : localOrders.filter(lo => lo.user_id === user?.id);
+          relevantLocal.forEach((lo: Order) => {
             if (map.has(lo.id)) {
               const existing = map.get(lo.id)!;
-              if (lo.customer_name && lo.customer_name !== "Jasmin T. Cavan") {
+              // Only use localStorage name if DB has no name (JOIN may already compute it)
+              if (lo.customer_name && lo.customer_name !== "Jasmin T. Cavan"
+                  && (!existing.customer_name || existing.customer_name.startsWith("Customer #"))) {
                 existing.customer_name = lo.customer_name;
               }
               if (lo.delivery_date) {
@@ -1136,7 +1145,7 @@ export default function DashboardPage() {
       console.log("GET /api/orders/admin/all network notice:", err);
     }
 
-    setOrders(localOrders);
+    setOrders(isAdmin ? localOrders : localOrders.filter(lo => lo.user_id === user?.id));
     setLoadingOrders(false);
   };
 

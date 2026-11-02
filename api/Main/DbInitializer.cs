@@ -239,12 +239,7 @@ namespace API.Main
                 ";
                 await cmd.ExecuteNonQueryAsync();
 
-                // Purge legacy sample seed orders (ID 1, 2, 3) if present
-                cmd.CommandText = @"
-                    DELETE FROM order_items WHERE order_id IN (1, 2, 3);
-                    DELETE FROM orders WHERE id IN (1, 2, 3);
-                ";
-                await cmd.ExecuteNonQueryAsync();
+
 
                 // Seed initial announcements if announcements table is empty
                 cmd.CommandText = "SELECT COUNT(*) FROM announcements;";

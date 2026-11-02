@@ -894,8 +894,13 @@ export default function DashboardPage() {
     saveStoredCart(updated);
 
     const token = localStorage.getItem("token");
+    let currentUserId = user?.id || 2;
     try {
-      await fetch(`/api/cart/remove/${cartItemId}`, {
+      const uStr = localStorage.getItem("user");
+      if (uStr) { const u = JSON.parse(uStr); if (u.id) currentUserId = u.id; }
+    } catch (e) { }
+    try {
+      await fetch(`/api/cart/remove/${cartItemId}?userId=${currentUserId}`, {
         method: "DELETE",
         headers: { Authorization: token ? `Bearer ${token}` : "" }
       });
@@ -910,8 +915,13 @@ export default function DashboardPage() {
     saveStoredCart([]);
 
     const token = localStorage.getItem("token");
+    let currentUserId = user?.id || 2;
     try {
-      await fetch("/api/cart/clear", {
+      const uStr = localStorage.getItem("user");
+      if (uStr) { const u = JSON.parse(uStr); if (u.id) currentUserId = u.id; }
+    } catch (e) { }
+    try {
+      await fetch(`/api/cart/clear?userId=${currentUserId}`, {
         method: "DELETE",
         headers: { Authorization: token ? `Bearer ${token}` : "" }
       });

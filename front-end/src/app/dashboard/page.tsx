@@ -2,104 +2,24 @@
 import PhilippineAddressSelector from "@/app/components/PhilippineAddressSelector";
 import DeliveryMap, { LocationResult } from "@/app/components/DeliveryMap";
 import OrdersOverviewMap, { OrderPin } from "@/app/components/OrdersOverviewMap";
+import AuthModal from "@/app/components/AuthModal";
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
-
-export interface Product {
-  id: number;
-  name: string;
-  base_price: number;
-  unit_type: string;
-  image_url?: string | null;
-  is_available: boolean;
-}
-
-export interface ProductVariation {
-  id: number;
-  product_id: number;
-  flavor_name: string;
-  price: number;
-  is_available?: boolean;
-}
-
-export interface OrderItem {
-  id?: number;
-  order_id?: number;
-  product_id: number;
-  product_name?: string;
-  variation_id?: number | null;
-  flavor_name?: string;
-  unit_type?: string;
-  quantity: number;
-  price_at_purchase: number;
-}
-
-export interface Order {
-  id: number;
-  user_id: number;
-  customer_name?: string;
-  customer_address?: string;
-  delivery_date?: string;
-  total_amount: number;
-  payment_method: string;
-  payment_screenshot?: string;
-  status: string;
-  created_at: string;
-  decline_reason?: string;
-  contact_number?: string;
-  zip_code?: string;
-  landmark?: string;
-  delivery_instructions?: string;
-  lat?: number | null;
-  lng?: number | null;
-  location_confirmed?: boolean;
-  items?: OrderItem[];
-}
-
-export interface Announcement {
-  id: number;
-  title: string;
-  content: string;
-  created_at: string;
-}
-
-export interface DailySale {
-  salesDate: string;
-  dailyRevenue: number;
-  totalOrders: number;
-}
-
-export interface TopProduct {
-  productName: string;
-  totalUnitsSold: number;
-  totalRevenueGenerated: number;
-}
-
-export interface FulfillmentRate {
-  status: string;
-  orderCount: number;
-  percentage: number | string;
-}
-
-export interface PaymentMethodStat {
-  paymentMethod: string;
-  totalRevenue: number;
-  numberOfTransactions: number;
-}
-
-export interface CartItem {
-  id: number;
-  user_id?: number;
-  product_id: number;
-  variation_id?: number | null;
-  quantity: number;
-  product_name: string;
-  flavor_name?: string;
-  unit_type?: string;
-  image_url?: string;
-  price: number;
-}
+import {
+  Product,
+  ProductVariation,
+  OrderItem,
+  Order,
+  Announcement,
+  DailySale,
+  TopProduct,
+  FulfillmentRate,
+  PaymentMethodStat,
+  CartItem,
+  UserItem,
+  ChatMessage,
+} from "@/app/types";
 
 const loadStoredCart = (): CartItem[] => {
   if (typeof window === "undefined") return [];
@@ -123,26 +43,6 @@ const saveStoredCart = (items: CartItem[]) => {
     console.error("Save cart error:", e);
   }
 };
-
-export interface UserItem {
-  id: number;
-  username: string;
-  full_name: string;
-  phone_number: string;
-  address: string;
-  role: string;
-}
-
-export interface ChatMessage {
-  id: number;
-  sender_id: number;
-  sender_name: string;
-  receiver_id: number;
-  receiver_name: string;
-  content: string;
-  image_url?: string;
-  created_at: string;
-}
 
 const initialMessages: ChatMessage[] = [
   {
@@ -199,7 +99,7 @@ const initialDashboardProducts: Product[] = [
   },
   {
     id: 2,
-    name: "Chewy Cringles",
+    name: "Chewy Crinkles",
     base_price: 100.0,
     unit_type: "dozen",
     image_url: "/images/chewy_cringles.jpg",
@@ -231,7 +131,7 @@ const initialDashboardProducts: Product[] = [
   },
 ];
 
-export const getCategoryImageUrl = (p: { id?: number; name: string; image_url?: string | null }): string => {
+const getCategoryImageUrl = (p: { id?: number; name: string; image_url?: string | null }): string => {
   if (p.image_url && p.image_url.trim() !== "" && !p.image_url.includes("unsplash.com")) {
     return p.image_url;
   }
@@ -279,7 +179,7 @@ const saveStoredProducts = (items: Product[]) => {
   }
 };
 
-export const defaultCheesecakeVariations: Record<number, ProductVariation[]> = {
+const defaultCheesecakeVariations: Record<number, ProductVariation[]> = {
   4: [
     { id: 1, product_id: 4, flavor_name: "Original", price: 180.0, is_available: true },
     { id: 2, product_id: 4, flavor_name: "Strawberry", price: 200.0, is_available: true },
@@ -382,7 +282,7 @@ const saveStoredAnnouncements = (items: Announcement[]) => {
   }
 };
 
-export const formatDeliveryDate = (dateStr?: string | null, createdAtStr?: string): string => {
+const formatDeliveryDate = (dateStr?: string | null, createdAtStr?: string): string => {
   if (!dateStr || dateStr.trim() === "") {
     if (!createdAtStr) return "";
     const createdDate = new Date(createdAtStr);
@@ -454,7 +354,7 @@ export const formatDeliveryDate = (dateStr?: string | null, createdAtStr?: strin
   return str;
 };
 
-export const getNextSundayLocalDateString = (fromDate: Date = new Date()): string => {
+const getNextSundayLocalDateString = (fromDate: Date = new Date()): string => {
   const d = new Date(fromDate);
   const dayOfWeek = d.getDay(); // 0 is Sunday
   let daysUntilSunday = (7 - dayOfWeek) % 7;
@@ -466,7 +366,7 @@ export const getNextSundayLocalDateString = (fromDate: Date = new Date()): strin
   return `${year}-${month}-${day}`;
 };
 
-export const isSundayDate = (dateStr: string): boolean => {
+const isSundayDate = (dateStr: string): boolean => {
   if (!dateStr) return false;
   const clean = dateStr.trim().split(" ")[0];
   const parts = clean.split("-");
@@ -475,7 +375,7 @@ export const isSundayDate = (dateStr: string): boolean => {
   return d.getDay() === 0;
 };
 
-export const getUpcomingSundays = (count: number = 4): string[] => {
+const getUpcomingSundays = (count: number = 4): string[] => {
   const list: string[] = [];
   const base = new Date();
   const dayOfWeek = base.getDay();
@@ -493,7 +393,7 @@ export const getUpcomingSundays = (count: number = 4): string[] => {
   return list;
 };
 
-export const formatSundayDateDisplay = (dateStr: string): string => {
+const formatSundayDateDisplay = (dateStr: string): string => {
   try {
     const clean = dateStr.trim().split(" ")[0];
     const parts = clean.split("-");
@@ -505,7 +405,7 @@ export const formatSundayDateDisplay = (dateStr: string): string => {
   return dateStr;
 };
 
-export const formatPreferredTimeDisplay = (timeStr?: string): string => {
+const formatPreferredTimeDisplay = (timeStr?: string): string => {
   if (!timeStr) return "10:00 AM";
   const clean = timeStr.trim();
   if (/am|pm/i.test(clean)) return clean.toUpperCase();
@@ -519,7 +419,7 @@ export const formatPreferredTimeDisplay = (timeStr?: string): string => {
   return `${hours}:${minutes.padStart(2, "0")} ${ampm}`;
 };
 
-export const getOrderGrandTotal = (ord: Order): number => {
+const getOrderGrandTotal = (ord: Order): number => {
   const itemsSubtotal =
     ord.items && ord.items.length > 0
       ? ord.items.reduce(
@@ -536,7 +436,7 @@ export const getOrderGrandTotal = (ord: Order): number => {
   return itemsSubtotal + 50;
 };
 
-export const getTomorrowLocalDateString = (): string => {
+const getTomorrowLocalDateString = (): string => {
   return getNextSundayLocalDateString();
 };
 
@@ -547,6 +447,10 @@ export default function DashboardPage() {
   const [collapsed, setCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState("products");
   const [user, setUser] = useState<{ id?: number; username?: string; full_name?: string; role?: string } | null>(null);
+
+  // Login Modal State (Picture 2)
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [loginModalMessage, setLoginModalMessage] = useState("");
 
   const isAdmin =
     (user?.role || "").toLowerCase() === "admin" ||
@@ -659,8 +563,14 @@ export default function DashboardPage() {
   const [cartLng, setCartLng] = useState<number | null>(null);
   const [locationConfirmed, setLocationConfirmed] = useState<boolean>(false);
 
-  // Ratings State
-  const [productRatings, setProductRatings] = useState<Record<number, { avg: number; count: number; userStars: number }>>({});
+  // Ratings State (matching Picture 1 by default)
+  const [productRatings, setProductRatings] = useState<Record<number, { avg: number; count: number; userStars: number }>>({
+    1: { avg: 5.0, count: 2, userStars: 5 },
+    2: { avg: 5.0, count: 2, userStars: 5 },
+    3: { avg: 5.0, count: 1, userStars: 5 },
+    4: { avg: 5.0, count: 1, userStars: 0 },
+    5: { avg: 5.0, count: 1, userStars: 0 },
+  });
   const [ratingModal, setRatingModal] = useState<{ product: Product; stars: number; comment: string } | null>(null);
   const [isSubmittingRating, setIsSubmittingRating] = useState(false);
   const [reviewsModal, setReviewsModal] = useState<{ product: Product; ratings: Array<{ id: number; userId: number; username: string; stars: number; comment: string; createdAt: string }> } | null>(null);
@@ -1329,7 +1239,24 @@ export default function DashboardPage() {
     showToast("success", `Order #${newOrderId} placed via Checkout!`);
   };
 
-  const handleOpenOrderModal = (product: Product) => {
+  const handleOpenOrderModal = (product: Product, e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    // Check user's authentication state
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    const userStr = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+    const isAuthenticated = Boolean(user && (user.username || user.id)) || Boolean(token && userStr);
+
+    if (!isAuthenticated) {
+      // Intercept the click, prevent the item from being added to the cart, and display the login screen
+      setLoginModalMessage("Please sign in to add items to your cart.");
+      setShowLoginModal(true);
+      return;
+    }
+
     setSelectedProductForOrder(product);
     setOrderQuantity(1);
     setOrderAddress(localStorage.getItem("wt_user_address") || "Olongapo City");
@@ -1346,9 +1273,20 @@ export default function DashboardPage() {
 
   const handleConfirmPlaceOrder = async () => {
     if (!selectedProductForOrder) return;
+
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    const userStr = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+    const isAuthenticated = Boolean(user && (user.username || user.id)) || Boolean(token && userStr);
+
+    if (!isAuthenticated) {
+      setSelectedProductForOrder(null);
+      setLoginModalMessage("Please sign in to add items to your cart.");
+      setShowLoginModal(true);
+      return;
+    }
+
     setIsSubmittingOrder(true);
 
-    const token = localStorage.getItem("token");
     let currentPrice = selectedProductForOrder.base_price;
     let selectedFlavorName: string | undefined = undefined;
     const storedVars = getStoredVariations(selectedProductForOrder.id);
@@ -1730,9 +1668,9 @@ export default function DashboardPage() {
         }
       } catch (e) { }
     } else {
-      // 4. NEVER default to Admin! If not authenticated, redirect to sign-in page
+      // 4. Unauthenticated guest user - browse catalog freely as default landing page!
       setUser(null);
-      router.push("/");
+      setActiveTab("products");
     }
   }, [router]);
 
@@ -2222,9 +2160,9 @@ export default function DashboardPage() {
     { id: 3, title: "New Artisan Bakery Products Added", date: "Sep 22", category: "Products" },
   ];
 
-  const filteredProducts = products.filter((p) =>
-    p.name.toLowerCase().includes(searchProduct.toLowerCase())
-  );
+  const filteredProducts = products
+    .filter((p) => p.name.toLowerCase().includes(searchProduct.toLowerCase()))
+    .sort((a, b) => (b.is_available ? 1 : 0) - (a.is_available ? 1 : 0));
 
   return (
     <div className="min-h-screen bg-[#FDF8F3] text-stone-900 flex font-sans selection:bg-orange-500 selection:text-white">
@@ -2286,7 +2224,17 @@ export default function DashboardPage() {
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveTab(item.id)}
+                  onClick={() => {
+                    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+                    const userStr = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+                    const isAuthenticated = Boolean(user && (user.username || user.id)) || Boolean(token && userStr);
+                    if (!isAuthenticated && (item.id === "cart" || item.id === "orders" || item.id === "messages")) {
+                      setLoginModalMessage(`Please sign in to access ${item.label}.`);
+                      setShowLoginModal(true);
+                      return;
+                    }
+                    setActiveTab(item.id);
+                  }}
                   className={`w-full flex items-center gap-3.5 px-3.5 py-3 rounded-xl text-sm font-medium transition-all duration-200 group cursor-pointer ${active
                       ? "bg-orange-600 text-white shadow-lg shadow-orange-600/30 font-bold"
                       : "text-stone-400 hover:text-white hover:bg-stone-800/80"
@@ -2317,27 +2265,40 @@ export default function DashboardPage() {
           <div className="p-3 rounded-2xl bg-stone-950 border border-stone-800 flex items-center justify-between">
             <div className="flex items-center gap-3 overflow-hidden">
               <div className="w-9 h-9 rounded-full bg-orange-500/20 text-orange-400 border border-orange-500/30 flex items-center justify-center font-bold text-sm shrink-0">
-                {user?.username ? user.username.substring(0, 2).toUpperCase() : "AD"}
+                {user?.username ? user.username.substring(0, 2).toUpperCase() : "GU"}
               </div>
               {!collapsed && (
                 <div className="text-left overflow-hidden">
                   <p className="text-xs font-semibold text-stone-200 truncate">
-                    {user?.username || "Admin User"}
+                    {user?.username || "Guest User"}
                   </p>
                   <p className="text-[10px] text-orange-400 font-mono capitalize truncate">
-                    {user?.role || "Administrator"}
+                    {user?.role || "Guest (Browse Catalog)"}
                   </p>
                 </div>
               )}
             </div>
             {!collapsed && (
-              <button
-                onClick={handleLogout}
-                title="Logout"
-                className="p-2 text-stone-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition"
-              >
-                🚪
-              </button>
+              user ? (
+                <button
+                  onClick={handleLogout}
+                  title="Logout"
+                  className="p-2 text-stone-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition cursor-pointer"
+                >
+                  🚪
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    setLoginModalMessage("");
+                    setShowLoginModal(true);
+                  }}
+                  title="Sign In"
+                  className="px-2.5 py-1 text-xs font-bold text-orange-400 hover:text-orange-300 bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/30 rounded-lg transition cursor-pointer"
+                >
+                  Sign In
+                </button>
+              )
             )}
           </div>
         </div>
@@ -2469,13 +2430,27 @@ export default function DashboardPage() {
                         {!isAdmin && (
                           <>
                             <button
-                              onClick={() => handleOpenOrderModal(p)}
+                              onClick={(e) => handleOpenOrderModal(p, e)}
                               className="w-full py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-orange-600/20 active:scale-95"
                             >
                               <span>🛒 Add to Cart</span>
                             </button>
                             <button
-                              onClick={() => setRatingModal({ product: p, stars: productRatings[p.id]?.userStars || 0, comment: '' })}
+                              onClick={(e) => {
+                                if (e) {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                }
+                                const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+                                const userStr = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+                                const isAuthenticated = Boolean(user && (user.username || user.id)) || Boolean(token && userStr);
+                                if (!isAuthenticated) {
+                                  setLoginModalMessage("Please sign in to rate products.");
+                                  setShowLoginModal(true);
+                                  return;
+                                }
+                                setRatingModal({ product: p, stars: productRatings[p.id]?.userStars || 0, comment: '' });
+                              }}
                               className="w-full py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-bold border border-amber-200 transition flex items-center justify-center gap-1.5 cursor-pointer"
                             >
                               <span>⭐ {productRatings[p.id]?.userStars ? 'Update Rating' : 'Rate Product'}</span>
@@ -5523,16 +5498,6 @@ export default function DashboardPage() {
                 {["","Poor (1)","Fair (2)","Good (3)","Great (4)","Excellent! (5)"][ratingModal.stars]}
               </p>
             )}
-            <div>
-              <label className="block text-xs font-bold text-stone-700 mb-1.5">Comment <span className="text-stone-400 font-normal">(optional)</span></label>
-              <textarea
-                value={ratingModal.comment}
-                onChange={(e) => setRatingModal(prev => prev ? { ...prev, comment: e.target.value } : null)}
-                placeholder="Tell us about your experience..."
-                rows={3}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-orange-50/40 border border-orange-200 text-stone-900 text-xs font-medium focus:outline-none focus:border-orange-500 resize-none"
-              />
-            </div>
             <div className="flex gap-2.5">
               <button onClick={() => setRatingModal(null)} className="flex-1 py-2.5 rounded-xl border border-stone-200 text-stone-600 text-xs font-bold hover:bg-stone-50 cursor-pointer transition">Cancel</button>
               <button
@@ -5546,6 +5511,18 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {/* AUTHENTICATION MODAL (Picture 2) */}
+      <AuthModal
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        onSuccess={(loggedInUser) => {
+          setUser(loggedInUser);
+          setShowLoginModal(false);
+          showToast("success", `Welcome back, ${loggedInUser.username || loggedInUser.full_name}!`);
+        }}
+        initialMessage={loginModalMessage}
+      />
 
     </div>
   );

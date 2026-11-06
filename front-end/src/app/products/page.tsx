@@ -2,23 +2,13 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-
-export interface Product {
-  id: number;
-  name: string;
-  base_price: number;
-  unit_type: string;
-  image_url?: string | null;
-  is_available: boolean;
-}
-
-export interface ProductVariation {
-  id: number;
-  product_id: number;
-  flavor_name: string;
-  price: number;
-  is_available?: boolean;
-}
+import {
+  Product,
+  ProductVariation,
+  getCategoryImageUrl,
+  defaultCheesecakeVariations,
+} from "@/app/types";
+import AuthModal from "@/app/components/AuthModal";
 
 const initialProducts: Product[] = [
   {
@@ -31,7 +21,7 @@ const initialProducts: Product[] = [
   },
   {
     id: 2,
-    name: "Chewy Cringles",
+    name: "Chewy Crinkles",
     base_price: 100.0,
     unit_type: "dozen",
     image_url: "/images/chewy_cringles.jpg",
@@ -63,26 +53,6 @@ const initialProducts: Product[] = [
   },
 ];
 
-export const getCategoryImageUrl = (p: { id?: number; name: string; image_url?: string | null }): string => {
-  if (p.image_url && p.image_url.trim() !== "" && !p.image_url.includes("unsplash.com")) {
-    return p.image_url;
-  }
-  const nameLower = (p.name || "").toLowerCase();
-  if (nameLower.includes("cookie")) return "/images/chocolate_chip_cookie.jpg";
-  if (nameLower.includes("cringle")) return "/images/chewy_cringles.jpg";
-  if (nameLower.includes("banana")) return "/images/banana_bread.jpg";
-  if (nameLower.includes("burnt")) return "/images/burnt_basque_cheesecake.jpg";
-  if (nameLower.includes("newyork") || nameLower.includes("new york") || nameLower.includes("cheesecake")) return "/images/newyork_cheesecake.jpg";
-  
-  if (p.id === 1) return "/images/chocolate_chip_cookie.jpg";
-  if (p.id === 2) return "/images/chewy_cringles.jpg";
-  if (p.id === 3) return "/images/banana_bread.jpg";
-  if (p.id === 4) return "/images/burnt_basque_cheesecake.jpg";
-  if (p.id === 5) return "/images/newyork_cheesecake.jpg";
-
-  return "/images/chocolate_chip_cookie.jpg";
-};
-
 const loadStoredProducts = (): Product[] => {
   if (typeof window === "undefined") return initialProducts;
   try {
@@ -109,21 +79,6 @@ const saveStoredProducts = (items: Product[]) => {
   } catch (e) {
     console.error("Save stored products error:", e);
   }
-};
-
-export const defaultCheesecakeVariations: Record<number, ProductVariation[]> = {
-  4: [
-    { id: 1, product_id: 4, flavor_name: "Original", price: 180.0, is_available: true },
-    { id: 2, product_id: 4, flavor_name: "Strawberry", price: 200.0, is_available: true },
-    { id: 3, product_id: 4, flavor_name: "Blueberry", price: 200.0, is_available: true },
-    { id: 4, product_id: 4, flavor_name: "Mango", price: 200.0, is_available: true },
-  ],
-  5: [
-    { id: 5, product_id: 5, flavor_name: "Original", price: 220.0, is_available: true },
-    { id: 6, product_id: 5, flavor_name: "Strawberry", price: 240.0, is_available: true },
-    { id: 7, product_id: 5, flavor_name: "Blueberry", price: 240.0, is_available: true },
-    { id: 8, product_id: 5, flavor_name: "Mango", price: 240.0, is_available: true },
-  ],
 };
 
 const getStoredVariations = (productId: number): ProductVariation[] => {
@@ -157,12 +112,15 @@ export default function ProductsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
     const userStr = localStorage.getItem("user");
     if (userStr) {
       try {
         const u = JSON.parse(userStr);
+        setUser(u);
         if (
           u.role === "Admin" ||
           u.role === "1" ||
@@ -391,7 +349,22 @@ export default function ProductsPage() {
     setIsFormOpen(true);
   };
 
-  const handleOpenOrderModal = (product: Product) => {
+  const handleOpenOrderModal = (product: Product, e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    const userStr = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+    const isAuthenticated = Boolean(user && (user.username || user.id)) || Boolean(token && userStr);
+
+    if (!isAuthenticated) {
+      // Intercept click, prevent item from being added to cart, display login screen
+      setShowLoginModal(true);
+      return;
+    }
+
     setSelectedProductForOrder(product);
     setOrderQuantity(1);
     setOrderAddress(localStorage.getItem("wt_user_address") || "Olongapo City");
@@ -416,6 +389,16 @@ export default function ProductsPage() {
   const handleConfirmAddToCart = async () => {
     if (!selectedProductForOrder) return;
 
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    const userStr = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+    const isAuthenticated = Boolean(user && (user.username || user.id)) || Boolean(token && userStr);
+
+    if (!isAuthenticated) {
+      setSelectedProductForOrder(null);
+      setShowLoginModal(true);
+      return;
+    }
+
     if (!selectedProductForOrder.is_available) {
       showToast("error", `"${selectedProductForOrder.name}" is currently unavailable and cannot be added to cart.`);
       return;
@@ -423,7 +406,6 @@ export default function ProductsPage() {
 
     setIsSubmittingOrder(true);
 
-    const token = localStorage.getItem("token");
     let currentPrice = selectedProductForOrder.base_price;
     let selectedFlavorName: string | undefined = undefined;
     const storedVars = getStoredVariations(selectedProductForOrder.id);
@@ -440,7 +422,6 @@ export default function ProductsPage() {
       }
     }
 
-    const userStr = localStorage.getItem("user");
     let currentUserId = 2;
     if (userStr) {
       try {
@@ -776,7 +757,7 @@ export default function ProductsPage() {
 
                   {!isAdmin && (
                     <button
-                      onClick={() => handleOpenOrderModal(p)}
+                      onClick={(e) => handleOpenOrderModal(p, e)}
                       disabled={!p.is_available}
                       className={`w-full py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${
                         p.is_available
@@ -1294,6 +1275,18 @@ export default function ProductsPage() {
           </div>
         </div>
       )}
+
+      {/* Auth Modal (Picture 2) */}
+      <AuthModal
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        onSuccess={(loggedInUser) => {
+          setUser(loggedInUser);
+          setShowLoginModal(false);
+          showToast("success", `Welcome back, ${loggedInUser.username || loggedInUser.full_name}!`);
+        }}
+        initialMessage="Please sign in to add items to your cart."
+      />
     </div>
   );
 }

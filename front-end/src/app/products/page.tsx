@@ -7,8 +7,15 @@ import {
   ProductVariation,
   getCategoryImageUrl,
   defaultCheesecakeVariations,
+  isSundayDate,
+  getNextSundayLocalDateString,
+  getUpcomingSundays,
+  formatSundayDateDisplay,
+  getEffectiveAvailableStock,
+  Announcement,
 } from "@/app/types";
 import AuthModal from "@/app/components/AuthModal";
+import AnnouncementModal from "@/app/components/AnnouncementModal";
 
 const initialProducts: Product[] = [
   {
@@ -18,6 +25,9 @@ const initialProducts: Product[] = [
     unit_type: "pc",
     image_url: "/images/chocolate_chip_cookie.jpg",
     is_available: true,
+    max_order_limit: 30,
+    available_stock: 30,
+    delivery_date: "2026-11-08",
   },
   {
     id: 2,
@@ -26,6 +36,9 @@ const initialProducts: Product[] = [
     unit_type: "dozen",
     image_url: "/images/chewy_cringles.jpg",
     is_available: true,
+    max_order_limit: 30,
+    available_stock: 30,
+    delivery_date: "2026-11-08",
   },
   {
     id: 3,
@@ -34,6 +47,9 @@ const initialProducts: Product[] = [
     unit_type: "loaf",
     image_url: "/images/banana_bread.jpg",
     is_available: true,
+    max_order_limit: 20,
+    available_stock: 20,
+    delivery_date: "2026-11-08",
   },
   {
     id: 4,
@@ -42,6 +58,9 @@ const initialProducts: Product[] = [
     unit_type: "piece",
     image_url: "/images/burnt_basque_cheesecake.jpg",
     is_available: true,
+    max_order_limit: 15,
+    available_stock: 15,
+    delivery_date: "2026-11-08",
   },
   {
     id: 5,
@@ -50,32 +69,47 @@ const initialProducts: Product[] = [
     unit_type: "piece",
     image_url: "/images/newyork_cheesecake.jpg",
     is_available: true,
+    max_order_limit: 15,
+    available_stock: 15,
+    delivery_date: "2026-11-08",
   },
 ];
 
-const loadStoredProducts = (): Product[] => {
-  if (typeof window === "undefined") return initialProducts;
-  try {
-    const stored = localStorage.getItem("wt_products");
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.map((p: Product) => ({
-          ...p,
-          image_url: getCategoryImageUrl(p)
-        }));
+const loadStoredProducts = (customCart?: any[], customOrders?: any[]): Product[] => {
+  let baseList = initialProducts;
+  if (typeof window !== "undefined") {
+    try {
+      const stored = localStorage.getItem("wt_products");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          baseList = parsed;
+        }
       }
+    } catch (e) {
+      console.error("Load stored products error:", e);
     }
-  } catch (e) {
-    console.error("Load stored products error:", e);
   }
-  return initialProducts;
+
+  return baseList.map((p: Product) => {
+    const maxLimit = p.max_order_limit != null ? Number(p.max_order_limit) : 30;
+    const computedStock = getEffectiveAvailableStock(p, maxLimit, customCart, customOrders);
+    return {
+      ...p,
+      max_order_limit: maxLimit,
+      available_stock: computedStock,
+      delivery_date: p.delivery_date || "2026-11-08",
+      is_available: computedStock > 0 ? (p.is_available ?? true) : false,
+      image_url: getCategoryImageUrl(p)
+    };
+  });
 };
 
 const saveStoredProducts = (items: Product[]) => {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem("wt_products", JSON.stringify(items));
+    window.dispatchEvent(new CustomEvent("wt_products_updated", { detail: items }));
   } catch (e) {
     console.error("Save stored products error:", e);
   }
@@ -147,6 +181,8 @@ export default function ProductsPage() {
     unit_type: "Piece",
     image_url: "",
     is_available: true,
+    restock: "30",
+    delivery_date: getNextSundayLocalDateString(),
   });
 
   // Dynamic Variations State in Modal
@@ -163,9 +199,62 @@ export default function ProductsPage() {
   const [orderAddress, setOrderAddress] = useState<string>("Olongapo City");
   const [orderPaymentMethod, setOrderPaymentMethod] = useState<string>("COD");
   const [orderDeliveryDate, setOrderDeliveryDate] = useState<string>(
-    new Date(Date.now() + 86400000).toISOString().split("T")[0]
+    getNextSundayLocalDateString()
   );
   const [isSubmittingOrder, setIsSubmittingOrder] = useState<boolean>(false);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [isAnnouncementModalOpen, setIsAnnouncementModalOpen] = useState(false);
+
+  // Auto-fetch announcements on site visit for pop-up
+  useEffect(() => {
+    fetch("/api/announcements")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setAnnouncements(data);
+          const storedUser = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+          let isUserAdmin = false;
+          if (storedUser) {
+            try {
+              const parsed = JSON.parse(storedUser);
+              isUserAdmin = parsed?.role?.toLowerCase() === "admin";
+            } catch {}
+          }
+          if (!isUserAdmin) {
+            setIsAnnouncementModalOpen(true);
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Real-time synchronization across windows/tabs and sessions
+  useEffect(() => {
+    const syncProducts = () => {
+      const stored = loadStoredProducts();
+      setProducts(stored);
+    };
+
+    const handleStorage = (e: StorageEvent) => {
+      if (!e.key || e.key === "wt_products") {
+        syncProducts();
+      }
+    };
+
+    const handleCustomUpdate = () => {
+      syncProducts();
+    };
+
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener("wt_products_updated", handleCustomUpdate);
+    const interval = setInterval(syncProducts, 1500);
+
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("wt_products_updated", handleCustomUpdate);
+      clearInterval(interval);
+    };
+  }, []);
 
   // Toast State
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -187,7 +276,21 @@ export default function ProductsPage() {
         if (Array.isArray(data) && data.length > 0) {
           const mergedMap = new Map<number, Product>();
           stored.forEach((p) => mergedMap.set(p.id, p));
-          data.forEach((p: Product) => mergedMap.set(p.id, p));
+          data.forEach((p: Product) => {
+            const existing = mergedMap.get(p.id);
+            const limit = p.max_order_limit != null ? Number(p.max_order_limit) : (existing?.max_order_limit ?? 30);
+            const currentAvail = existing?.available_stock ?? p.available_stock;
+            const stock = getEffectiveAvailableStock(
+              { ...p, available_stock: currentAvail, max_order_limit: limit },
+              limit
+            );
+            mergedMap.set(p.id, {
+              ...p,
+              max_order_limit: limit,
+              available_stock: stock,
+              is_available: stock > 0 ? (p.is_available ?? true) : false,
+            });
+          });
           const mergedList = Array.from(mergedMap.values()).sort((a, b) => a.id - b.id);
 
           setProducts(mergedList);
@@ -309,6 +412,47 @@ export default function ProductsPage() {
     showToast("success", `Flavor "${updatedFlavorName}" is now ${newStatus ? "Available (In Stock)" : "Unavailable"}.`);
   };
 
+  const handleQuickRestock = async (productId: number, amount = 30) => {
+    const token = localStorage.getItem("token");
+    const currentList = loadStoredProducts();
+    const target = currentList.find((p) => p.id === productId);
+    if (!target) return;
+
+    const newStock = (target.available_stock ?? 0) + amount;
+    const newLimit = Math.max(newStock, target.max_order_limit ?? 30);
+
+    const updated = currentList.map((p) =>
+      p.id === productId
+        ? { ...p, available_stock: newStock, max_order_limit: newLimit, is_available: true }
+        : p
+    );
+
+    setProducts(updated);
+    saveStoredProducts(updated);
+
+    try {
+      await fetch(`/api/products/admin/update/${productId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: token ? `Bearer ${token}` : "",
+        },
+        body: JSON.stringify({
+          id: target.id,
+          name: target.name,
+          base_price: target.base_price,
+          unit_type: target.unit_type,
+          image_url: target.image_url || null,
+          is_available: true,
+          max_order_limit: newLimit,
+          available_stock: newStock,
+        }),
+      });
+    } catch (e) {}
+
+    showToast("success", `📦 Restocked +${amount} ${target.unit_type || "units"} for "${target.name}". Total available: ${newStock}.`);
+  };
+
   // Open Add Product Form
   const handleOpenAddForm = () => {
     setEditingProduct(null);
@@ -318,6 +462,8 @@ export default function ProductsPage() {
       unit_type: "Piece",
       image_url: "",
       is_available: true,
+      restock: "30",
+      delivery_date: getNextSundayLocalDateString(),
     });
     setHasVariations(false);
     setFormVariations([{ flavor_name: "", price: "" }]);
@@ -327,12 +473,15 @@ export default function ProductsPage() {
   // Open Edit Product Form
   const handleOpenEditForm = (product: Product) => {
     setEditingProduct(product);
+    const curStock = product.available_stock ?? product.max_order_limit ?? 30;
     setFormData({
       name: product.name,
       base_price: product.base_price.toString(),
       unit_type: product.unit_type || "Piece",
       image_url: product.image_url || "",
       is_available: product.is_available,
+      restock: curStock <= 0 ? "30" : curStock.toString(),
+      delivery_date: product.delivery_date || getNextSundayLocalDateString(),
     });
 
     const storedVars = getStoredVariations(product.id);
@@ -365,17 +514,17 @@ export default function ProductsPage() {
       return;
     }
 
+    const curStock = product.available_stock ?? product.max_order_limit ?? 30;
+    if (curStock <= 0) {
+      showToast("error", `"${product.name}" is currently out of stock.`);
+      return;
+    }
+
     setSelectedProductForOrder(product);
     setOrderQuantity(1);
     setOrderAddress(localStorage.getItem("wt_user_address") || "Olongapo City");
     setOrderPaymentMethod("COD");
-    
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const year = tomorrow.getFullYear();
-    const month = String(tomorrow.getMonth() + 1).padStart(2, "0");
-    const day = String(tomorrow.getDate()).padStart(2, "0");
-    setOrderDeliveryDate(`${year}-${month}-${day}`);
+    setOrderDeliveryDate(getNextSundayLocalDateString());
 
     const storedVars = getStoredVariations(product.id);
     const availableVars = storedVars.filter((v: ProductVariation) => v.is_available !== false);
@@ -401,6 +550,17 @@ export default function ProductsPage() {
 
     if (!selectedProductForOrder.is_available) {
       showToast("error", `"${selectedProductForOrder.name}" is currently unavailable and cannot be added to cart.`);
+      return;
+    }
+
+    const maxLimit = selectedProductForOrder.max_order_limit ?? 30;
+    const curStock = selectedProductForOrder.available_stock ?? maxLimit;
+    if (curStock <= 0) {
+      showToast("error", `"${selectedProductForOrder.name}" is out of stock.`);
+      return;
+    }
+    if (orderQuantity > curStock) {
+      showToast("error", `Cannot add to cart: Only ${curStock} ${selectedProductForOrder.unit_type || "pcs"} available.`);
       return;
     }
 
@@ -468,6 +628,7 @@ export default function ProductsPage() {
       unit_type: selectedProductForOrder.unit_type,
       image_url: selectedProductForOrder.image_url,
       price: currentPrice,
+      delivery_date: selectedProductForOrder.delivery_date || getNextSundayLocalDateString(),
     };
 
     // Check if item exists in local cart, if so update quantity
@@ -483,7 +644,13 @@ export default function ProductsPage() {
     try {
       localStorage.setItem("wt_cart", JSON.stringify(storedCart));
       localStorage.setItem("wt_active_tab", "cart");
+      window.dispatchEvent(new CustomEvent("wt_cart_updated", { detail: storedCart }));
+      window.dispatchEvent(new Event("storage"));
     } catch (e) {}
+
+    const updatedProds = loadStoredProducts(storedCart);
+    setProducts(updatedProds);
+    saveStoredProducts(updatedProds);
 
     setIsSubmittingOrder(false);
     setSelectedProductForOrder(null);
@@ -497,13 +664,19 @@ export default function ProductsPage() {
     const token = localStorage.getItem("token");
 
     const basePriceNum = parseFloat(formData.base_price) || 0;
+    const restockQty = parseInt(formData.restock, 10);
+    const newStock = isNaN(restockQty) ? 30 : Math.max(0, restockQty);
+    const maxLimit = Math.max(newStock, editingProduct?.max_order_limit ?? 30);
 
     const payload = {
       name: formData.name,
       base_price: basePriceNum,
       unit_type: formData.unit_type,
       image_url: formData.image_url || null,
-      is_available: formData.is_available,
+      is_available: newStock > 0 ? formData.is_available : false,
+      max_order_limit: maxLimit,
+      available_stock: newStock,
+      delivery_date: formData.delivery_date || getNextSundayLocalDateString(),
     };
 
     const currentList = loadStoredProducts();
@@ -722,12 +895,14 @@ export default function ProductsPage() {
                     />
                     <span
                       className={`absolute top-3 right-3 px-2.5 py-1 rounded-full text-[10px] font-bold shadow ${
-                        p.is_available
+                        (p.available_stock ?? p.max_order_limit ?? 30) > 0 && p.is_available
                           ? "bg-emerald-500 text-white"
                           : "bg-rose-600 text-white"
                       }`}
                     >
-                      {p.is_available ? "In Stock" : "Unavailable"}
+                      {(p.available_stock ?? p.max_order_limit ?? 30) > 0 && p.is_available
+                        ? (p.available_stock != null ? `In Stock (${p.available_stock})` : "In Stock")
+                        : "Out of Stock"}
                     </span>
                   </div>
 
@@ -744,6 +919,18 @@ export default function ProductsPage() {
                         ₱{p.base_price.toFixed(2)}
                       </span>
                     </div>
+                    <div className="flex items-center justify-between text-[11px] pt-1.5 border-t border-stone-100">
+                      <span className="text-stone-500 font-semibold">Stock:</span>
+                      <span className={`font-bold ${(p.available_stock ?? 30) <= 0 ? "text-rose-600 font-black" : (p.available_stock ?? 30) <= 5 ? "text-amber-600" : "text-emerald-700"}`}>
+                        {p.available_stock ?? 30} / {p.max_order_limit ?? 30} {p.unit_type}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] pt-1 text-stone-500">
+                      <span className="font-semibold">Delivery:</span>
+                      <span className="font-bold text-orange-800 text-[10px] bg-orange-50 px-1.5 py-0.5 rounded border border-orange-200/60">
+                        🗓️ {p.delivery_date ? formatSundayDateDisplay(p.delivery_date) : "Sunday, Nov 8"}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
@@ -758,14 +945,14 @@ export default function ProductsPage() {
                   {!isAdmin && (
                     <button
                       onClick={(e) => handleOpenOrderModal(p, e)}
-                      disabled={!p.is_available}
+                      disabled={!p.is_available || (p.available_stock != null && p.available_stock <= 0)}
                       className={`w-full py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${
-                        p.is_available
+                        p.is_available && (p.available_stock == null || p.available_stock > 0)
                           ? "bg-orange-600 hover:bg-orange-500 text-white cursor-pointer shadow-md shadow-orange-600/20 active:scale-95"
                           : "bg-stone-200 text-stone-400 cursor-not-allowed shadow-none"
                       }`}
                     >
-                      {p.is_available ? (
+                      {p.is_available && (p.available_stock == null || p.available_stock > 0) ? (
                         <>
                           <span>🛒</span>
                           <span>Add to Cart</span>
@@ -773,7 +960,7 @@ export default function ProductsPage() {
                       ) : (
                         <>
                           <span>🚫</span>
-                          <span>Unavailable</span>
+                          <span>Out of Stock</span>
                         </>
                       )}
                     </button>
@@ -781,12 +968,20 @@ export default function ProductsPage() {
 
                   {isAdmin && (
                     <div className="space-y-1.5">
+                      {(p.available_stock ?? 0) <= 0 && (
+                        <button
+                          onClick={() => handleQuickRestock(p.id, 30)}
+                          className="w-full py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-600/20 transition cursor-pointer flex items-center justify-center gap-1.5"
+                        >
+                          <span>📦 Quick Restock (+30)</span>
+                        </button>
+                      )}
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => handleOpenEditForm(p)}
                           className="flex-1 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold border border-amber-200 transition cursor-pointer"
                         >
-                          ✏️ Edit
+                          ✏️ Edit / Restock
                         </button>
                         <button
                           onClick={() => setProductToDelete(p)}
@@ -961,6 +1156,95 @@ export default function ProductsPage() {
                     <option value="Box">Box</option>
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-stone-700 font-bold">Restock *</label>
+                  {editingProduct && (
+                    <span className="text-[11px] text-stone-500 font-normal">
+                      Current Available:{" "}
+                      <strong className={(editingProduct.available_stock ?? 0) <= 0 ? "text-rose-600 font-bold" : "text-orange-600"}>
+                        {editingProduct.available_stock ?? 0}
+                      </strong>
+                      {(editingProduct.available_stock ?? 0) <= 0 && (
+                        <span className="ml-1 text-[10px] text-rose-600 font-bold bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                          Finished
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </div>
+                <input
+                  type="number"
+                  min="0"
+                  required
+                  value={formData.restock}
+                  onChange={(e) => setFormData({ ...formData, restock: e.target.value })}
+                  placeholder="e.g. 30"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-orange-50/40 border border-orange-200 text-stone-900 focus:outline-none focus:border-orange-500 font-medium"
+                />
+                {/* Quick Restock Buttons */}
+                <div className="flex items-center gap-1.5 mt-2">
+                  <span className="text-[10px] font-bold text-stone-500">Quick Restock:</span>
+                  {[10, 20, 30, 50].map((qty) => (
+                    <button
+                      key={qty}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, restock: qty.toString() })}
+                      className="px-2 py-0.5 rounded-lg bg-orange-100 hover:bg-orange-200 text-orange-800 text-[10px] font-bold border border-orange-200 transition cursor-pointer"
+                    >
+                      +{qty}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-stone-400 mt-1 font-normal">
+                  Put new freshly baked units into stock. Once previous stock reaches 0, enter your restock amount here (e.g. 30) to make the item available for orders again.
+                </p>
+              </div>
+
+              {/* Available Delivery Date (Per-Product Scheduling) */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-stone-700 font-bold">Available Delivery Date *</label>
+                  <span className="text-[10px] text-orange-700 font-bold bg-orange-100 px-2 py-0.5 rounded-full border border-orange-200">
+                    Per-Product Schedule
+                  </span>
+                </div>
+                <select
+                  value={formData.delivery_date}
+                  onChange={(e) =>
+                    setFormData({ ...formData, delivery_date: e.target.value })
+                  }
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-orange-50/40 border border-orange-200 text-stone-900 focus:outline-none focus:border-orange-500 font-bold text-xs cursor-pointer"
+                >
+                  {getUpcomingSundays(8).map((sun) => (
+                    <option key={sun} value={sun}>
+                      Sunday, {formatSundayDateDisplay(sun)} ({sun})
+                    </option>
+                  ))}
+                </select>
+                {/* Quick Sunday Buttons */}
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  <span className="text-[10px] font-bold text-stone-500 self-center">Quick Select:</span>
+                  {getUpcomingSundays(4).map((sun) => (
+                    <button
+                      key={sun}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, delivery_date: sun })}
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                        formData.delivery_date === sun
+                          ? "bg-orange-600 text-white border-orange-600 shadow-xs"
+                          : "bg-orange-50 hover:bg-orange-100 text-orange-800 border-orange-200"
+                      }`}
+                    >
+                      {formatSundayDateDisplay(sun)}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-stone-400 mt-1 font-normal">
+                  Sets the scheduled delivery date for customers purchasing this specific item.
+                </p>
               </div>
 
               <div>
@@ -1201,29 +1485,64 @@ export default function ProductsPage() {
                       );
                     })()}
 
-                    {/* QUANTITY PICKER */}
-                    <div className="space-y-1.5">
-                      <label className="block text-stone-700 font-bold">Quantity:</label>
-                      <div className="flex items-center gap-3">
-                        <button
-                          type="button"
-                          onClick={() => setOrderQuantity((q) => Math.max(1, q - 1))}
-                          className="w-9 h-9 rounded-xl bg-orange-100 hover:bg-orange-200 text-orange-800 font-black text-sm flex items-center justify-center transition cursor-pointer"
-                        >
-                          -
-                        </button>
-                        <span className="w-12 text-center text-sm font-black text-stone-900 font-mono">
-                          {orderQuantity}
+                    {/* Pre-set Delivery Date for this item */}
+                    <div className="bg-orange-50/80 border border-orange-200/80 rounded-2xl p-3 flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <span className="text-[10px] font-bold text-stone-500 uppercase tracking-wide">
+                          Scheduled Delivery Date
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => setOrderQuantity((q) => q + 1)}
-                          className="w-9 h-9 rounded-xl bg-orange-100 hover:bg-orange-200 text-orange-800 font-black text-sm flex items-center justify-center transition cursor-pointer"
-                        >
-                          +
-                        </button>
+                        <p className="text-xs font-black text-orange-950 flex items-center gap-1.5">
+                          <span>📅</span>
+                          <span>
+                            {selectedProductForOrder.delivery_date
+                              ? `Sunday, ${formatSundayDateDisplay(selectedProductForOrder.delivery_date)} (${selectedProductForOrder.delivery_date})`
+                              : "Sunday, Nov 8 (2026-11-08)"}
+                          </span>
+                        </p>
                       </div>
+                      <span className="text-[10px] font-bold text-orange-700 bg-orange-100 px-2 py-0.5 rounded-full border border-orange-200 shrink-0">
+                        Pre-set by Bakery
+                      </span>
                     </div>
+
+                    {/* QUANTITY PICKER */}
+                    {(() => {
+                      const maxLimit = selectedProductForOrder.max_order_limit ?? 30;
+                      const available = selectedProductForOrder.available_stock ?? maxLimit;
+                      return (
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <label className="block text-stone-700 font-bold">Quantity:</label>
+                            <span className="text-[11px] text-stone-500 font-medium">
+                              Available: <strong className="text-orange-600">{available}</strong> / {maxLimit} {selectedProductForOrder.unit_type || "pcs"}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => setOrderQuantity((q) => Math.max(1, q - 1))}
+                              className="w-9 h-9 rounded-xl bg-orange-100 hover:bg-orange-200 text-orange-800 font-black text-sm flex items-center justify-center transition cursor-pointer"
+                            >
+                              -
+                            </button>
+                            <span className="w-12 text-center text-sm font-black text-stone-900 font-mono">
+                              {orderQuantity}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setOrderQuantity((q) => Math.min(available, q + 1))}
+                              disabled={orderQuantity >= available}
+                              className="w-9 h-9 rounded-xl bg-orange-100 hover:bg-orange-200 text-orange-800 font-black text-sm flex items-center justify-center transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              +
+                            </button>
+                          </div>
+                          {available <= 0 && (
+                            <p className="text-[11px] text-rose-600 font-bold">This item is currently out of stock.</p>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 </>
               );
@@ -1240,7 +1559,9 @@ export default function ProductsPage() {
                 const storedVars = selectedProductForOrder ? getStoredVariations(selectedProductForOrder.id) : [];
                 const hasVars = storedVars.length > 0;
                 const hasAnyAvailableVar = !hasVars || storedVars.some((v: ProductVariation) => v.is_available !== false);
-                const isBlocked = !selectedProductForOrder?.is_available || !hasAnyAvailableVar;
+                const maxLimit = selectedProductForOrder?.max_order_limit ?? 30;
+                const available = selectedProductForOrder?.available_stock ?? maxLimit;
+                const isBlocked = !selectedProductForOrder?.is_available || !hasAnyAvailableVar || available <= 0;
 
                 return (
                   <button
@@ -1260,7 +1581,7 @@ export default function ProductsPage() {
                     ) : isBlocked ? (
                       <>
                         <span>🚫</span>
-                        <span>Unavailable</span>
+                        <span>{available <= 0 ? "Out of Stock" : "Unavailable"}</span>
                       </>
                     ) : (
                       <>
@@ -1286,6 +1607,13 @@ export default function ProductsPage() {
           showToast("success", `Welcome back, ${loggedInUser.username || loggedInUser.full_name}!`);
         }}
         initialMessage="Please sign in to add items to your cart."
+      />
+
+      {/* Announcement Modal Pop-up Overlay */}
+      <AnnouncementModal
+        isOpen={isAnnouncementModalOpen}
+        onClose={() => setIsAnnouncementModalOpen(false)}
+        announcements={announcements}
       />
     </div>
   );

@@ -5,6 +5,9 @@ export interface Product {
   unit_type: string;
   image_url?: string | null;
   is_available: boolean;
+  max_order_limit?: number | null;
+  available_stock?: number | null;
+  delivery_date?: string | null;
 }
 
 export interface ProductVariation {
@@ -91,6 +94,7 @@ export interface CartItem {
   unit_type?: string;
   image_url?: string;
   price: number;
+  delivery_date?: string | null;
 }
 
 export interface UserItem {
@@ -302,4 +306,58 @@ export const getOrderGrandTotal = (ord: Order): number => {
 export const getTomorrowLocalDateString = (): string => {
   return getNextSundayLocalDateString();
 };
+
+export const getEffectiveAvailableStock = (
+  productOrId: number | Product,
+  maxOrderLimit?: number | null,
+  cartItems?: CartItem[],
+  ordersList?: Order[]
+): number => {
+  const productId = typeof productOrId === "number" ? productOrId : productOrId.id;
+  const productObj = typeof productOrId === "object" ? productOrId : null;
+
+  let baseStock = 30;
+
+  if (productObj && productObj.available_stock != null) {
+    baseStock = Number(productObj.available_stock);
+  } else if (typeof window !== "undefined") {
+    try {
+      const stored = localStorage.getItem("wt_products");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          const found = parsed.find((p: any) => p.id === productId);
+          if (found && found.available_stock != null) {
+            baseStock = Number(found.available_stock);
+          } else if (found && found.max_order_limit != null) {
+            baseStock = Number(found.max_order_limit);
+          }
+        }
+      }
+    } catch {}
+  } else if (maxOrderLimit != null) {
+    baseStock = Number(maxOrderLimit);
+  }
+
+  // Active user's cart deduction (so reserved items in cart immediately reflect on UI)
+  let activeCart = cartItems;
+  if (!activeCart && typeof window !== "undefined") {
+    try {
+      const storedCart = localStorage.getItem("wt_cart");
+      if (storedCart) {
+        const parsed = JSON.parse(storedCart);
+        if (Array.isArray(parsed)) {
+          activeCart = parsed;
+        }
+      }
+    } catch {}
+  }
+
+  const cartDeduction = (activeCart || [])
+    .filter((it) => it.product_id === productId)
+    .reduce((sum, it) => sum + (Number(it.quantity) || 0), 0);
+
+  return Math.max(0, baseStock - cartDeduction);
+};
+
 

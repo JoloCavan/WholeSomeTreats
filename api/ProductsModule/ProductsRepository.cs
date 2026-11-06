@@ -11,11 +11,11 @@ namespace API.ProductsModule
     {
         private static readonly List<Product> FallbackProducts = new()
         {
-            new Product { Id = 1, Name = "Chocolate Chip Cookies", BasePrice = 45.00m, UnitType = "pc", ImageUrl = "/images/chocolate_chip_cookie.jpg", IsAvailable = true },
-            new Product { Id = 2, Name = "Chewy Cringles", BasePrice = 100.00m, UnitType = "dozen", ImageUrl = "/images/chewy_cringles.jpg", IsAvailable = true },
-            new Product { Id = 3, Name = "Chocolate Chip Nutty Banana Bread", BasePrice = 150.00m, UnitType = "loaf", ImageUrl = "/images/banana_bread.jpg", IsAvailable = true },
-            new Product { Id = 4, Name = "Burnt Basque Cheesecake", BasePrice = 180.00m, UnitType = "piece", ImageUrl = "/images/burnt_basque_cheesecake.jpg", IsAvailable = true },
-            new Product { Id = 5, Name = "NewYork Cheesecake", BasePrice = 220.00m, UnitType = "piece", ImageUrl = "/images/newyork_cheesecake.jpg", IsAvailable = true }
+            new Product { Id = 1, Name = "Chocolate Chip Cookies", BasePrice = 45.00m, UnitType = "pc", ImageUrl = "/images/chocolate_chip_cookie.jpg", IsAvailable = true, MaxOrderLimit = 30, AvailableStock = 30, DeliveryDate = "2026-11-08" },
+            new Product { Id = 2, Name = "Chewy Crinkles", BasePrice = 100.00m, UnitType = "dozen", ImageUrl = "/images/chewy_cringles.jpg", IsAvailable = true, MaxOrderLimit = 30, AvailableStock = 30, DeliveryDate = "2026-11-08" },
+            new Product { Id = 3, Name = "Chocolate Chip Nutty Banana Bread", BasePrice = 150.00m, UnitType = "loaf", ImageUrl = "/images/banana_bread.jpg", IsAvailable = true, MaxOrderLimit = 20, AvailableStock = 20, DeliveryDate = "2026-11-08" },
+            new Product { Id = 4, Name = "Burnt Basque Cheesecake", BasePrice = 180.00m, UnitType = "piece", ImageUrl = "/images/burnt_basque_cheesecake.jpg", IsAvailable = true, MaxOrderLimit = 15, AvailableStock = 15, DeliveryDate = "2026-11-08" },
+            new Product { Id = 5, Name = "NewYork Cheesecake", BasePrice = 220.00m, UnitType = "piece", ImageUrl = "/images/newyork_cheesecake.jpg", IsAvailable = true, MaxOrderLimit = 15, AvailableStock = 15, DeliveryDate = "2026-11-08" }
         };
 
         private static readonly List<ProductVariation> FallbackVariations = new()
@@ -34,14 +34,44 @@ namespace API.ProductsModule
 
         private Product MapReaderToProduct(DbDataReader reader)
         {
+            int? maxLimit = null;
+            try
+            {
+                int ord = reader.GetOrdinal("max_order_limit");
+                if (ord >= 0 && !reader.IsDBNull(ord)) maxLimit = reader.GetInt32(ord);
+            }
+            catch {}
+
+            int? availStock = null;
+            try
+            {
+                int ord = reader.GetOrdinal("available_stock");
+                if (ord >= 0 && !reader.IsDBNull(ord)) availStock = reader.GetInt32(ord);
+            }
+            catch {}
+
+            string? deliveryDate = null;
+            try
+            {
+                int ord = reader.GetOrdinal("delivery_date");
+                if (ord >= 0 && !reader.IsDBNull(ord)) deliveryDate = reader.GetString(ord);
+            }
+            catch {}
+
+            int id = reader.GetInt32(reader.GetOrdinal("id"));
+            int defaultLimit = id <= 2 ? 30 : id == 3 ? 20 : 15;
+
             return new Product
             {
-                Id = reader.GetInt32(reader.GetOrdinal("id")),
+                Id = id,
                 Name = reader.GetString(reader.GetOrdinal("name")),
                 BasePrice = reader.GetDecimal(reader.GetOrdinal("base_price")),
                 UnitType = reader.GetString(reader.GetOrdinal("unit_type")),
                 ImageUrl = reader.IsDBNull(reader.GetOrdinal("image_url")) ? null : reader.GetString(reader.GetOrdinal("image_url")),
-                IsAvailable = reader.GetBoolean(reader.GetOrdinal("is_available"))
+                IsAvailable = reader.GetBoolean(reader.GetOrdinal("is_available")),
+                MaxOrderLimit = maxLimit ?? defaultLimit,
+                AvailableStock = availStock ?? maxLimit ?? defaultLimit,
+                DeliveryDate = !string.IsNullOrWhiteSpace(deliveryDate) ? deliveryDate : "2026-11-08"
             };
         }
 
@@ -184,6 +214,9 @@ namespace API.ProductsModule
                 existing.UnitType = product.UnitType;
                 existing.ImageUrl = product.ImageUrl;
                 existing.IsAvailable = product.IsAvailable;
+                if (product.MaxOrderLimit.HasValue) existing.MaxOrderLimit = product.MaxOrderLimit;
+                if (product.AvailableStock.HasValue) existing.AvailableStock = product.AvailableStock;
+                if (!string.IsNullOrWhiteSpace(product.DeliveryDate)) existing.DeliveryDate = product.DeliveryDate;
             }
         }
 

@@ -3,6 +3,7 @@ import PhilippineAddressSelector from "@/app/components/PhilippineAddressSelecto
 import DeliveryMap, { LocationResult } from "@/app/components/DeliveryMap";
 import OrdersOverviewMap, { OrderPin } from "@/app/components/OrdersOverviewMap";
 import AuthModal from "@/app/components/AuthModal";
+import AnnouncementModal from "@/app/components/AnnouncementModal";
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
@@ -19,6 +20,7 @@ import {
   CartItem,
   UserItem,
   ChatMessage,
+  getEffectiveAvailableStock,
 } from "@/app/types";
 
 const loadStoredCart = (): CartItem[] => {
@@ -39,6 +41,8 @@ const saveStoredCart = (items: CartItem[]) => {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem("wt_cart", JSON.stringify(items));
+    window.dispatchEvent(new CustomEvent("wt_cart_updated", { detail: items }));
+    window.dispatchEvent(new Event("storage"));
   } catch (e) {
     console.error("Save cart error:", e);
   }
@@ -96,6 +100,9 @@ const initialDashboardProducts: Product[] = [
     unit_type: "pc",
     image_url: "/images/chocolate_chip_cookie.jpg",
     is_available: true,
+    max_order_limit: 30,
+    available_stock: 30,
+    delivery_date: "2026-11-08",
   },
   {
     id: 2,
@@ -104,6 +111,9 @@ const initialDashboardProducts: Product[] = [
     unit_type: "dozen",
     image_url: "/images/chewy_cringles.jpg",
     is_available: true,
+    max_order_limit: 30,
+    available_stock: 30,
+    delivery_date: "2026-11-08",
   },
   {
     id: 3,
@@ -112,6 +122,9 @@ const initialDashboardProducts: Product[] = [
     unit_type: "loaf",
     image_url: "/images/banana_bread.jpg",
     is_available: true,
+    max_order_limit: 20,
+    available_stock: 20,
+    delivery_date: "2026-11-08",
   },
   {
     id: 4,
@@ -120,6 +133,9 @@ const initialDashboardProducts: Product[] = [
     unit_type: "piece",
     image_url: "/images/burnt_basque_cheesecake.jpg",
     is_available: true,
+    max_order_limit: 15,
+    available_stock: 15,
+    delivery_date: "2026-11-08",
   },
   {
     id: 5,
@@ -128,6 +144,9 @@ const initialDashboardProducts: Product[] = [
     unit_type: "piece",
     image_url: "/images/newyork_cheesecake.jpg",
     is_available: true,
+    max_order_limit: 15,
+    available_stock: 15,
+    delivery_date: "2026-11-08",
   },
 ];
 
@@ -151,29 +170,41 @@ const getCategoryImageUrl = (p: { id?: number; name: string; image_url?: string 
   return "/images/chocolate_chip_cookie.jpg";
 };
 
-const loadStoredProducts = (): Product[] => {
-  if (typeof window === "undefined") return initialDashboardProducts;
-  try {
-    const stored = localStorage.getItem("wt_products");
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.map((p: Product) => ({
-          ...p,
-          image_url: getCategoryImageUrl(p)
-        }));
+const loadStoredProducts = (customCart?: CartItem[], customOrders?: Order[]): Product[] => {
+  let baseList = initialDashboardProducts;
+  if (typeof window !== "undefined") {
+    try {
+      const stored = localStorage.getItem("wt_products");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          baseList = parsed;
+        }
       }
+    } catch (e) {
+      console.error("Load stored products error:", e);
     }
-  } catch (e) {
-    console.error("Load stored products error:", e);
   }
-  return initialDashboardProducts;
+
+  return baseList.map((p: Product) => {
+    const maxLimit = p.max_order_limit != null ? Number(p.max_order_limit) : 30;
+    const computedStock = getEffectiveAvailableStock(p, maxLimit, customCart, customOrders);
+    return {
+      ...p,
+      max_order_limit: maxLimit,
+      available_stock: computedStock,
+      delivery_date: p.delivery_date || "2026-11-08",
+      is_available: computedStock > 0 ? (p.is_available ?? true) : false,
+      image_url: getCategoryImageUrl(p)
+    };
+  });
 };
 
 const saveStoredProducts = (items: Product[]) => {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem("wt_products", JSON.stringify(items));
+    window.dispatchEvent(new CustomEvent("wt_products_updated", { detail: items }));
   } catch (e) {
     console.error("Save stored products error:", e);
   }
@@ -239,6 +270,8 @@ const saveStoredOrders = (items: Order[]) => {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem("wt_orders", JSON.stringify(items));
+    window.dispatchEvent(new CustomEvent("wt_orders_updated", { detail: items }));
+    window.dispatchEvent(new Event("storage"));
   } catch (e) {
     console.error("Save stored orders error:", e);
   }
@@ -479,6 +512,8 @@ export default function DashboardPage() {
     unit_type: "Piece",
     image_url: "",
     is_available: true,
+    restock: "30",
+    delivery_date: getNextSundayLocalDateString(),
   });
 
   const productFileInputRef = useRef<HTMLInputElement>(null);
@@ -543,9 +578,41 @@ export default function DashboardPage() {
   const [orderAddress, setOrderAddress] = useState<string>("Olongapo City");
   const [orderPaymentMethod, setOrderPaymentMethod] = useState<string>("COD");
   const [orderDeliveryDate, setOrderDeliveryDate] = useState<string>(
-    new Date(Date.now() + 86400000).toISOString().split("T")[0]
+    getNextSundayLocalDateString()
   );
   const [isSubmittingOrder, setIsSubmittingOrder] = useState<boolean>(false);
+
+  // Real-time synchronization across windows/tabs and sessions
+  useEffect(() => {
+    const syncProducts = () => {
+      const stored = loadStoredProducts();
+      setProducts(stored);
+    };
+
+    const handleStorage = (e: StorageEvent) => {
+      if (!e.key || e.key === "wt_products" || e.key === "wt_cart" || e.key === "wt_orders") {
+        syncProducts();
+      }
+    };
+
+    const handleCustomUpdate = () => {
+      syncProducts();
+    };
+
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener("wt_products_updated", handleCustomUpdate);
+    window.addEventListener("wt_cart_updated", handleCustomUpdate);
+    window.addEventListener("wt_orders_updated", handleCustomUpdate);
+    const interval = setInterval(syncProducts, 1000);
+
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("wt_products_updated", handleCustomUpdate);
+      window.removeEventListener("wt_cart_updated", handleCustomUpdate);
+      window.removeEventListener("wt_orders_updated", handleCustomUpdate);
+      clearInterval(interval);
+    };
+  }, []);
 
   // Cart State
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -556,7 +623,7 @@ export default function DashboardPage() {
   const [cartPaymentScreenshot, setCartPaymentScreenshot] = useState<string | null>(null);
   const [isCheckingOutCart, setIsCheckingOutCart] = useState<boolean>(false);
   const [cartContactNumber, setCartContactNumber] = useState<string>("");
-  const [cartZipCode, setCartZipCode] = useState<string>("");
+  const [cartZipCode, setCartZipCode] = useState<string>("2200");
   const [cartLandmark, setCartLandmark] = useState<string>("");
   const [cartDeliveryInstructions, setCartDeliveryInstructions] = useState<string>("");
   const [cartLat, setCartLat] = useState<number | null>(null);
@@ -787,6 +854,30 @@ export default function DashboardPage() {
   };
 
   const handleCartQuantityChange = (cartItemId: number, delta: number) => {
+    const item = cart.find((c) => c.id === cartItemId);
+    if (!item) return;
+
+    if (delta > 0) {
+      const prod = products.find((p) => p.id === item.product_id);
+      const limit = prod?.max_order_limit ?? 30;
+      const orderedQty = orders
+        .filter((o) => o.status !== "Cancelled" && o.status !== "Declined")
+        .reduce((sum, ord) => {
+          const itemQty = (ord.items || [])
+            .filter((it) => it.product_id === item.product_id)
+            .reduce((s, it) => s + (Number(it.quantity) || 0), 0);
+          return sum + itemQty;
+        }, 0);
+      const otherCartQty = cart
+        .filter((c) => c.product_id === item.product_id && c.id !== cartItemId)
+        .reduce((s, c) => s + (Number(c.quantity) || 0), 0);
+      const maxAllowed = Math.max(0, limit - orderedQty - otherCartQty);
+      if (item.quantity + delta > maxAllowed) {
+        showToast("error", `Cannot increase: Maximum order limit of ${limit} reached for ${item.product_name}.`);
+        return;
+      }
+    }
+
     const updated = cart.map((c) => {
       if (c.id === cartItemId) {
         const newQty = Math.max(1, c.quantity + delta);
@@ -796,12 +887,16 @@ export default function DashboardPage() {
     });
     setCart(updated);
     saveStoredCart(updated);
+    const updatedProds = loadStoredProducts(updated, orders);
+    setProducts(updatedProds);
   };
 
   const handleRemoveFromCart = async (cartItemId: number) => {
     const updated = cart.filter((c) => c.id !== cartItemId);
     setCart(updated);
     saveStoredCart(updated);
+    const updatedProds = loadStoredProducts(updated, orders);
+    setProducts(updatedProds);
 
     const token = localStorage.getItem("token");
     let currentUserId = user?.id || 2;
@@ -823,6 +918,8 @@ export default function DashboardPage() {
   const handleClearCart = async () => {
     setCart([]);
     saveStoredCart([]);
+    const updatedProds = loadStoredProducts([], orders);
+    setProducts(updatedProds);
 
     const token = localStorage.getItem("token");
     let currentUserId = user?.id || 2;
@@ -860,9 +957,27 @@ export default function DashboardPage() {
       return;
     }
 
-    if (!isSundayDate(cartDeliveryDate)) {
-      showToast("error", "Deliveries are scheduled on Sundays only. Please select a valid Sunday.");
-      return;
+    // Dynamic pre-set delivery date from cart items
+    const itemDeliveryDates = cart.map((i) => i.delivery_date).filter(Boolean);
+    const effectiveDeliveryDate =
+      itemDeliveryDates[0] || cartDeliveryDate || getNextSundayLocalDateString();
+
+    // Guard: check dynamic inventory stock limits
+    const currentProds = loadStoredProducts();
+    for (const item of cart) {
+      const prod = currentProds.find((p) => p.id === item.product_id);
+      if (prod) {
+        const curLimit = prod.max_order_limit ?? 30;
+        const curStock = prod.available_stock ?? curLimit;
+        if (curStock <= 0) {
+          showToast("error", `Cannot checkout: "${item.product_name}" is sold out.`);
+          return;
+        }
+        if (item.quantity > curStock) {
+          showToast("error", `Cannot checkout: Only ${curStock} ${prod.unit_type || "pcs"} of "${item.product_name}" remaining.`);
+          return;
+        }
+      }
     }
 
     setIsCheckingOutCart(true);
@@ -883,8 +998,8 @@ export default function DashboardPage() {
     const totalOrderAmount = itemsSubtotal + 50;
 
     const combinedDeliveryDateTime = cartDeliveryTime
-      ? `${cartDeliveryDate} ${cartDeliveryTime}`
-      : cartDeliveryDate;
+      ? `${effectiveDeliveryDate} ${cartDeliveryTime}`
+      : effectiveDeliveryDate;
 
     const payload = {
       userId: currentUserId,
@@ -926,6 +1041,57 @@ export default function DashboardPage() {
       console.log("Checkout POST /api/orders/checkout notice:", err);
     }
 
+    // Dynamic Inventory Deduction Logic: Update stock in real-time across system
+    const updatedProds = currentProds.map((prod) => {
+      const totalOrderedQty = cart
+        .filter((it) => it.product_id === prod.id)
+        .reduce((sum, it) => sum + (Number(it.quantity) || 0), 0);
+
+      if (totalOrderedQty > 0) {
+        const curLimit = prod.max_order_limit ?? 30;
+        const curStock = prod.available_stock ?? curLimit;
+        const newStock = Math.max(0, curStock - totalOrderedQty);
+        return {
+          ...prod,
+          max_order_limit: curLimit,
+          available_stock: newStock,
+          is_available: newStock > 0 ? (prod.is_available ?? true) : false,
+        };
+      }
+      return prod;
+    });
+
+    setProducts(updatedProds);
+    saveStoredProducts(updatedProds);
+
+    // Sync updated stock to API in background
+    for (const prod of updatedProds) {
+      const orderedQty = cart
+        .filter((it) => it.product_id === prod.id)
+        .reduce((sum, it) => sum + (Number(it.quantity) || 0), 0);
+      if (orderedQty > 0) {
+        try {
+          fetch(`/api/products/admin/update/${prod.id}`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: token ? `Bearer ${token}` : "",
+            },
+            body: JSON.stringify({
+              id: prod.id,
+              name: prod.name,
+              base_price: prod.base_price,
+              unit_type: prod.unit_type,
+              image_url: prod.image_url || null,
+              is_available: prod.is_available,
+              max_order_limit: prod.max_order_limit,
+              available_stock: prod.available_stock,
+            }),
+          }).catch(() => {});
+        } catch (e) {}
+      }
+    }
+
     // Add single consolidated order to local orders
     const newOrder: Order = {
       id: newOrderId,
@@ -960,7 +1126,9 @@ export default function DashboardPage() {
     };
 
     let existingOrders = loadStoredOrders();
-    saveStoredOrders([newOrder, ...existingOrders]);
+    const updatedOrders = [newOrder, ...existingOrders];
+    saveStoredOrders(updatedOrders);
+    setOrders(updatedOrders);
 
     // Store payment screenshot in dedicated map (survives fetchOrders re-sync)
     if (cartPaymentScreenshot) {
@@ -969,7 +1137,12 @@ export default function DashboardPage() {
       try { sessionStorage.setItem('wt_payment_screenshots', JSON.stringify(updated)); } catch { }
     }
 
-    await handleClearCart();
+    setCart([]);
+    saveStoredCart([]);
+    const finalProds = loadStoredProducts([], updatedOrders);
+    setProducts(finalProds);
+    saveStoredProducts(finalProds);
+
     setCartPaymentScreenshot(null);
     setCartPaymentMethod("COD");
     setIsCheckingOutCart(false);
@@ -1257,11 +1430,17 @@ export default function DashboardPage() {
       return;
     }
 
+    const curStock = product.available_stock ?? product.max_order_limit ?? 30;
+    if (curStock <= 0) {
+      showToast("error", `"${product.name}" is currently out of stock.`);
+      return;
+    }
+
     setSelectedProductForOrder(product);
     setOrderQuantity(1);
     setOrderAddress(localStorage.getItem("wt_user_address") || "Olongapo City");
     setOrderPaymentMethod("COD");
-    setOrderDeliveryDate(new Date(Date.now() + 86400000).toISOString().split("T")[0]);
+    setOrderDeliveryDate(getNextSundayLocalDateString());
 
     const storedVars = getStoredVariations(product.id);
     if (storedVars.length > 0) {
@@ -1338,7 +1517,11 @@ export default function DashboardPage() {
       unit_type: selectedProductForOrder.unit_type,
       image_url: selectedProductForOrder.image_url || undefined,
       price: currentPrice,
+      delivery_date: selectedProductForOrder.delivery_date || getNextSundayLocalDateString(),
     };
+    if (selectedProductForOrder.delivery_date) {
+      setCartDeliveryDate(selectedProductForOrder.delivery_date);
+    }
 
     const currentCart = loadStoredCart();
     const existingIdx = currentCart.findIndex(
@@ -1357,6 +1540,10 @@ export default function DashboardPage() {
     setCart(updatedCart);
     saveStoredCart(updatedCart);
 
+    const updatedProds = loadStoredProducts(updatedCart, orders);
+    setProducts(updatedProds);
+    saveStoredProducts(updatedProds);
+
     setIsSubmittingOrder(false);
     setSelectedProductForOrder(null);
     showToast("success", `🛒 "${selectedProductForOrder.name}" added to cart!`);
@@ -1368,11 +1555,12 @@ export default function DashboardPage() {
   const [loadingAnnouncements, setLoadingAnnouncements] = useState(false);
   const [searchAnnouncement, setSearchAnnouncement] = useState("");
   const [isAddAnnouncementOpen, setIsAddAnnouncementOpen] = useState(false);
+  const [isAnnouncementModalOpen, setIsAnnouncementModalOpen] = useState(false);
   const [announcementFormData, setAnnouncementFormData] = useState({ title: "", content: "" });
   const [announcementToDelete, setAnnouncementToDelete] = useState<Announcement | null>(null);
 
   // 1. GET /api/announcements
-  const fetchAnnouncements = async () => {
+  const fetchAnnouncements = async (): Promise<Announcement[]> => {
     setLoadingAnnouncements(true);
     try {
       const res = await fetch("/api/announcements");
@@ -1382,7 +1570,7 @@ export default function DashboardPage() {
           setAnnouncements(data);
           saveStoredAnnouncements(data);
           setLoadingAnnouncements(false);
-          return;
+          return data;
         }
       }
     } catch (err) {
@@ -1392,13 +1580,36 @@ export default function DashboardPage() {
     const stored = loadStoredAnnouncements();
     setAnnouncements(stored);
     setLoadingAnnouncements(false);
+    return stored;
   };
 
   useEffect(() => {
     setIsMounted(true);
     setCart(loadStoredCart());
     fetchUsers();
+
+    // Auto-fetch announcements on site visit & auto-open pop-up modal for customers
+    fetchAnnouncements().then((data) => {
+      const storedUser = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+      let isUserAdmin = false;
+      if (storedUser) {
+        try {
+          const parsed = JSON.parse(storedUser);
+          isUserAdmin = parsed?.role?.toLowerCase() === "admin";
+        } catch {}
+      }
+      if (!isUserAdmin && data && data.length > 0) {
+        setIsAnnouncementModalOpen(true);
+      }
+    });
   }, []);
+
+  // Redirect customers away from dedicated announcements page if requested
+  useEffect(() => {
+    if (!isAdmin && activeTab === "announcements") {
+      setActiveTab("products");
+    }
+  }, [isAdmin, activeTab]);
 
   useEffect(() => {
     if (activeTab === "products") {
@@ -1686,7 +1897,21 @@ export default function DashboardPage() {
         if (Array.isArray(data) && data.length > 0) {
           const mergedMap = new Map<number, Product>();
           stored.forEach((p) => mergedMap.set(p.id, p));
-          data.forEach((p: Product) => mergedMap.set(p.id, p));
+          data.forEach((p: Product) => {
+            const existing = mergedMap.get(p.id);
+            const limit = p.max_order_limit != null ? Number(p.max_order_limit) : (existing?.max_order_limit ?? 30);
+            const currentAvail = existing?.available_stock ?? p.available_stock;
+            const stock = getEffectiveAvailableStock(
+              { ...p, available_stock: currentAvail, max_order_limit: limit },
+              limit
+            );
+            mergedMap.set(p.id, {
+              ...p,
+              max_order_limit: limit,
+              available_stock: stock,
+              is_available: stock > 0 ? (p.is_available ?? true) : false,
+            });
+          });
           const mergedList = Array.from(mergedMap.values()).sort((a, b) => a.id - b.id);
 
           setProducts(mergedList);
@@ -1833,6 +2058,41 @@ export default function DashboardPage() {
     }
   };
 
+  const handleQuickRestock = async (productId: number, amount: number = 30) => {
+    const currentList = loadStoredProducts();
+    const target = currentList.find((p) => p.id === productId);
+    if (!target) return;
+
+    const newStock = (target.available_stock ?? 0) + amount;
+    const newLimit = Math.max(newStock, target.max_order_limit ?? 30);
+    const updated = currentList.map((p) =>
+      p.id === productId
+        ? { ...p, available_stock: newStock, max_order_limit: newLimit, is_available: true }
+        : p
+    );
+
+    setProducts(updated);
+    saveStoredProducts(updated);
+
+    try {
+      await fetch(`/api/products/admin/update/${productId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: localStorage.getItem("token") ? `Bearer ${localStorage.getItem("token")}` : "",
+        },
+        body: JSON.stringify({
+          ...target,
+          available_stock: newStock,
+          max_order_limit: newLimit,
+          is_available: true,
+        }),
+      });
+    } catch (err) {}
+
+    showToast("success", `📦 Restocked "${target.name}" with +${amount} units! Available stock: ${newStock}.`);
+  };
+
   const handleOpenAddProduct = () => {
     setEditingProduct(null);
     setProductFormData({
@@ -1841,6 +2101,8 @@ export default function DashboardPage() {
       unit_type: "Piece",
       image_url: "",
       is_available: true,
+      restock: "30",
+      delivery_date: getNextSundayLocalDateString(),
     });
     setHasProductVariations(false);
     setProductFormVariations([{ flavor_name: "", price: "" }]);
@@ -1849,12 +2111,15 @@ export default function DashboardPage() {
 
   const handleOpenEditProduct = (product: Product) => {
     setEditingProduct(product);
+    const curStock = product.available_stock ?? product.max_order_limit ?? 30;
     setProductFormData({
       name: product.name,
       base_price: product.base_price.toString(),
       unit_type: product.unit_type || "Piece",
       image_url: product.image_url || "",
       is_available: product.is_available,
+      restock: curStock <= 0 ? "30" : curStock.toString(),
+      delivery_date: product.delivery_date || getNextSundayLocalDateString(),
     });
 
     const storedVars = getStoredVariations(product.id);
@@ -1877,13 +2142,19 @@ export default function DashboardPage() {
     const token = localStorage.getItem("token");
 
     const basePriceNum = parseFloat(productFormData.base_price) || 0;
+    const restockQty = parseInt(productFormData.restock, 10);
+    const newStock = isNaN(restockQty) ? 30 : Math.max(0, restockQty);
+    const maxLimit = Math.max(newStock, editingProduct?.max_order_limit ?? 30);
 
     const payload = {
       name: productFormData.name,
       base_price: basePriceNum,
       unit_type: productFormData.unit_type,
       image_url: productFormData.image_url || null,
-      is_available: productFormData.is_available,
+      is_available: newStock > 0 ? productFormData.is_available : false,
+      max_order_limit: maxLimit,
+      available_stock: newStock,
+      delivery_date: productFormData.delivery_date || getNextSundayLocalDateString(),
     };
 
     const currentList = loadStoredProducts();
@@ -1968,8 +2239,10 @@ export default function DashboardPage() {
     showToast(
       "success",
       editingProduct
-        ? `Product "${productFormData.name}" updated successfully!`
-        : `Product "${productFormData.name}" added successfully (#${targetId})!`
+        ? (editingProduct.available_stock ?? 0) <= 0 && newStock > 0
+          ? `📦 Restocked "${productFormData.name}" with ${newStock} units!`
+          : `Product "${productFormData.name}" updated successfully (Stock: ${newStock})!`
+        : `Product "${productFormData.name}" added successfully with ${newStock} units in stock (#${targetId})!`
     );
     setIsProductFormOpen(false);
   };
@@ -2139,7 +2412,7 @@ export default function DashboardPage() {
     ...(isAdmin ? [{ id: "baking", label: "Items to Bake", icon: "👩‍🍳", badge: bakingProductionData.totalToBakeCount }] : []),
     ...(!isAdmin ? [{ id: "cart", label: "Cart", icon: "🛒", badge: cart.reduce((sum, item) => sum + item.quantity, 0) }] : []),
     { id: "orders", label: isAdmin ? "Orders" : "My Orders", icon: "📋" },
-    { id: "announcements", label: "Announcements", icon: "📢" },
+    ...(isAdmin ? [{ id: "announcements", label: "Announcements", icon: "📢" }] : []),
     { id: "messages", label: "Messages", icon: "💬" },
     ...(isAdmin ? [{ id: "users", label: "Users", icon: "👥" }] : []),
     ...(isAdmin ? [{ id: "analytics", label: "Analytics", icon: "📊" }] : []),
@@ -2326,6 +2599,43 @@ export default function DashboardPage() {
           {activeTab === "products" && (
             /* PRODUCTS MANAGEMENT VIEW */
             <div className="space-y-6 animate-in fade-in duration-200">
+              {/* TOP ANNOUNCEMENT BANNER / POP-UP TRIGGER FOR CUSTOMERS */}
+              {announcements.length > 0 && (
+                <div
+                  onClick={() => setIsAnnouncementModalOpen(true)}
+                  className="bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 rounded-3xl p-4 text-white shadow-lg shadow-orange-500/15 hover:shadow-xl hover:shadow-orange-500/25 transition-all duration-300 cursor-pointer flex items-center justify-between gap-4 border border-orange-300/40 relative overflow-hidden group"
+                >
+                  <div className="absolute -right-10 -bottom-10 w-32 h-32 bg-white/10 rounded-full blur-xl pointer-events-none group-hover:scale-125 transition-transform" />
+                  <div className="flex items-center gap-3.5 overflow-hidden">
+                    <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-xl shrink-0 border border-white/30 group-hover:scale-105 transition-transform">
+                      📢
+                    </div>
+                    <div className="overflow-hidden">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-0.5 rounded-full bg-white/25 text-[10px] font-black uppercase tracking-wider backdrop-blur-xs">
+                          Bakery Announcement
+                        </span>
+                        <span className="text-xs font-black text-white truncate">
+                          {announcements[0]?.title}
+                        </span>
+                        {announcements.length > 1 && (
+                          <span className="hidden sm:inline-block px-2 py-0.5 rounded-full bg-black/15 text-[10px] font-bold text-orange-100">
+                            +{announcements.length - 1} more
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-orange-100 font-medium truncate mt-0.5">
+                        {announcements[0]?.content}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0 bg-white/25 hover:bg-white/35 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition backdrop-blur-xs shadow-sm">
+                    <span>View Announcement</span>
+                    <span className="group-hover:translate-x-1 transition-transform">→</span>
+                  </div>
+                </div>
+              )}
+
               {/* CONTROLS */}
               <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div className="relative w-full sm:w-80">
@@ -2342,6 +2652,14 @@ export default function DashboardPage() {
                 </div>
 
                 <div className="flex items-center gap-2 self-end sm:self-auto">
+                  {isAdmin && (
+                    <button
+                      onClick={() => setIsAddAnnouncementOpen(true)}
+                      className="px-3.5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold transition shadow-md flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <span>📢 Post Announcement</span>
+                    </button>
+                  )}
                   {isAdmin && (
                     <button
                       onClick={handleOpenAddProduct}
@@ -2378,12 +2696,15 @@ export default function DashboardPage() {
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                           />
                           <span
-                            className={`absolute top-3 right-3 px-2.5 py-1 rounded-full text-[10px] font-bold ${p.is_available
+                            className={`absolute top-3 right-3 px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                              (p.available_stock ?? p.max_order_limit ?? 30) > 0 && p.is_available
                                 ? "bg-emerald-500 text-white shadow"
-                                : "bg-stone-500 text-white"
-                              }`}
+                                : "bg-rose-600 text-white shadow"
+                            }`}
                           >
-                            {p.is_available ? "In Stock" : "Unavailable"}
+                            {(p.available_stock ?? p.max_order_limit ?? 30) > 0 && p.is_available
+                              ? (p.available_stock != null ? `In Stock (${p.available_stock})` : "In Stock")
+                              : "Out of Stock"}
                           </span>
                         </div>
 
@@ -2416,6 +2737,18 @@ export default function DashboardPage() {
                               ₱{p.base_price.toFixed(2)}
                             </span>
                           </div>
+                          <div className="flex items-center justify-between text-[11px] pt-1.5 border-t border-stone-100">
+                            <span className="text-stone-500 font-semibold">Stock:</span>
+                            <span className={`font-bold ${(p.available_stock ?? 30) <= 0 ? "text-rose-600 font-black" : (p.available_stock ?? 30) <= 5 ? "text-amber-600" : "text-emerald-700"}`}>
+                              {p.available_stock ?? 30} / {p.max_order_limit ?? 30} {p.unit_type}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-[11px] pt-1 text-stone-500">
+                            <span className="font-semibold">Delivery:</span>
+                            <span className="font-bold text-orange-800 text-[10px] bg-orange-50 px-1.5 py-0.5 rounded border border-orange-200/60">
+                              🗓️ {p.delivery_date ? formatSundayDateDisplay(p.delivery_date) : "Sunday, Nov 8"}
+                            </span>
+                          </div>
                         </div>
                       </div>
 
@@ -2431,9 +2764,14 @@ export default function DashboardPage() {
                           <>
                             <button
                               onClick={(e) => handleOpenOrderModal(p, e)}
-                              className="w-full py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-orange-600/20 active:scale-95"
+                              disabled={(p.available_stock ?? p.max_order_limit ?? 30) <= 0 || !p.is_available}
+                              className={`w-full py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-orange-600/20 active:scale-95 ${
+                                (p.available_stock ?? p.max_order_limit ?? 30) <= 0 || !p.is_available
+                                  ? "bg-stone-300 text-stone-500 cursor-not-allowed shadow-none"
+                                  : "bg-orange-600 hover:bg-orange-500 text-white"
+                              }`}
                             >
-                              <span>🛒 Add to Cart</span>
+                              <span>{(p.available_stock ?? p.max_order_limit ?? 30) <= 0 || !p.is_available ? "🚫 Out of Stock" : "🛒 Add to Cart"}</span>
                             </button>
                             <button
                               onClick={(e) => {
@@ -2459,19 +2797,29 @@ export default function DashboardPage() {
                         )}
 
                         {isAdmin && (
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => handleOpenEditProduct(p)}
-                              className="flex-1 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold border border-amber-200 transition cursor-pointer"
-                            >
-                              ✏️ Edit
-                            </button>
-                            <button
-                              onClick={() => setProductToDelete(p)}
-                              className="flex-1 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold border border-rose-200 transition cursor-pointer"
-                            >
-                              🗑️ Delete
-                            </button>
+                          <div className="space-y-1.5">
+                            {(p.available_stock ?? 0) <= 0 && (
+                              <button
+                                onClick={() => handleQuickRestock(p.id, 30)}
+                                className="w-full py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-600/20 transition cursor-pointer flex items-center justify-center gap-1.5"
+                              >
+                                <span>📦 Quick Restock (+30)</span>
+                              </button>
+                            )}
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleOpenEditProduct(p)}
+                                className="flex-1 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold border border-amber-200 transition cursor-pointer"
+                              >
+                                ✏️ Edit / Restock
+                              </button>
+                              <button
+                                onClick={() => setProductToDelete(p)}
+                                className="flex-1 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold border border-rose-200 transition cursor-pointer"
+                              >
+                                🗑️ Delete
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -3062,11 +3410,15 @@ export default function DashboardPage() {
                           <span className="text-base">🚚</span>
                           <span className="font-bold text-stone-700">Scheduled Delivery:</span>
                           <span className="font-extrabold text-orange-700 bg-white px-2.5 py-1 rounded-xl border border-orange-200 shadow-xs">
-                            {formatDeliveryDate(`${cartDeliveryDate} ${cartDeliveryTime}`)}
+                            {(() => {
+                              const itemDates = cart.map((i) => i.delivery_date).filter(Boolean);
+                              const presetDate = itemDates[0] || cartDeliveryDate || getNextSundayLocalDateString();
+                              return `Sunday, ${formatSundayDateDisplay(presetDate)} at ${cartDeliveryTime || "10:00 AM"}`;
+                            })()}
                           </span>
                         </div>
                         <span className="text-[11px] text-stone-500 font-medium">
-                          You can change delivery date & time in the checkout summary.
+                          Pre-set by bakery for freshest delivery.
                         </span>
                       </div>
                       <div className="divide-y divide-stone-100">
@@ -3106,6 +3458,16 @@ export default function DashboardPage() {
                                     </p>
                                   )}
                                   <p className="text-xs text-stone-400 mt-0.5">₱{item.price.toFixed(2)} / item</p>
+                                  <div className="flex items-center gap-1.5 mt-1 text-[11px] text-orange-800 font-semibold bg-orange-50 px-2 py-0.5 rounded-md border border-orange-200/60 w-fit">
+                                    <span>📅 Delivery:</span>
+                                    <span>
+                                      {item.delivery_date
+                                        ? `Sunday, ${formatSundayDateDisplay(item.delivery_date)}`
+                                        : itemProduct?.delivery_date
+                                        ? `Sunday, ${formatSundayDateDisplay(itemProduct.delivery_date)}`
+                                        : "Sunday, Nov 8"}
+                                    </span>
+                                  </div>
                                   {isItemUnavailable && (
                                     <p className="text-[11px] text-rose-600 font-bold mt-1">
                                       ⚠️ This item is currently unavailable. Please remove it to proceed with checkout.
@@ -3292,46 +3654,30 @@ export default function DashboardPage() {
                           </div>
 
                           <div className="space-y-2.5">
-                            <div>
-                              <div className="flex items-center justify-between mb-1">
-                                <label className="block text-stone-700 font-bold">Delivery Date</label>
-                                <span className="text-[10px] text-orange-700 font-bold bg-orange-100 px-2 py-0.5 rounded-full border border-orange-200">
-                                  📅 Sunday Deliveries Only
-                                </span>
-                              </div>
-                              <input
-                                type="date"
-                                min={getNextSundayLocalDateString()}
-                                value={cartDeliveryDate}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  if (!isSundayDate(val)) {
-                                    showToast("error", "Deliveries are made on Sundays only. Picked the nearest Sunday for you.");
-                                    setCartDeliveryDate(getNextSundayLocalDateString(new Date(val)));
-                                  } else {
-                                    setCartDeliveryDate(val);
-                                  }
-                                }}
-                                className="w-full px-3 py-2 rounded-xl bg-orange-50/40 border border-orange-200 text-stone-900 focus:outline-none focus:border-orange-500 font-medium text-xs cursor-pointer"
-                              />
-
-                              {/* Quick Sunday Buttons */}
-                              <div className="flex flex-wrap gap-1.5 mt-2">
-                                {getUpcomingSundays(4).map((sun) => (
-                                  <button
-                                    key={sun}
-                                    type="button"
-                                    onClick={() => setCartDeliveryDate(sun)}
-                                    className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer ${cartDeliveryDate === sun
-                                        ? "bg-orange-600 text-white border-orange-600 shadow-sm"
-                                        : "bg-orange-50/70 hover:bg-orange-100 text-orange-900 border-orange-200"
-                                      }`}
-                                  >
-                                    🗓️ {formatSundayDateDisplay(sun)}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
+                            {/* Pre-set Delivery Date dynamically from Product(s) */}
+                            {(() => {
+                              const itemDates = cart.map((i) => i.delivery_date).filter(Boolean);
+                              const presetDate = itemDates[0] || cartDeliveryDate || getNextSundayLocalDateString();
+                              return (
+                                <div className="p-3.5 rounded-2xl bg-orange-50/70 border border-orange-200/80 space-y-1">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10px] font-bold text-stone-500 uppercase tracking-wide">
+                                      Scheduled Delivery Date
+                                    </span>
+                                    <span className="text-[10px] text-orange-700 font-bold bg-orange-100 px-2 py-0.5 rounded-full border border-orange-200">
+                                      📅 Pre-set by Baker
+                                    </span>
+                                  </div>
+                                  <p className="text-xs font-black text-orange-950 flex items-center gap-1.5 pt-0.5">
+                                    <span>🗓️</span>
+                                    <span>Sunday, {formatSundayDateDisplay(presetDate)} ({presetDate})</span>
+                                  </p>
+                                  <p className="text-[10px] text-stone-400 font-normal">
+                                    Delivery schedule is pre-set by the owner for fresh baking.
+                                  </p>
+                                </div>
+                              );
+                            })()}
 
                             <div>
                               <label className="block text-stone-700 font-bold mb-1">Preferred Time</label>
@@ -3711,8 +4057,8 @@ export default function DashboardPage() {
               )}
             </div>
           )}
-          {activeTab === "announcements" && (
-            /* ANNOUNCEMENTS MANAGEMENT VIEW */
+          {activeTab === "announcements" && isAdmin && (
+            /* ANNOUNCEMENTS MANAGEMENT VIEW (ADMIN ONLY) */
             <div className="space-y-6 animate-in fade-in duration-200">
               {/* CONTROLS */}
               {isAdmin && (
@@ -4516,6 +4862,97 @@ export default function DashboardPage() {
                     <option value="Dozen">Dozen</option>
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-stone-700 font-bold">Restock *</label>
+                  {editingProduct && (
+                    <span className="text-[11px] text-stone-500 font-normal">
+                      Current Available:{" "}
+                      <strong className={(editingProduct.available_stock ?? 0) <= 0 ? "text-rose-600 font-bold" : "text-orange-600"}>
+                        {editingProduct.available_stock ?? 0}
+                      </strong>
+                      {(editingProduct.available_stock ?? 0) <= 0 && (
+                        <span className="ml-1 text-[10px] text-rose-600 font-bold bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                          Finished
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </div>
+                <input
+                  type="number"
+                  min="0"
+                  required
+                  value={productFormData.restock}
+                  onChange={(e) =>
+                    setProductFormData({ ...productFormData, restock: e.target.value })
+                  }
+                  placeholder="e.g. 30"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-orange-50/40 border border-orange-200 text-stone-900 focus:outline-none focus:border-orange-500 font-medium"
+                />
+                {/* Quick Restock Buttons */}
+                <div className="flex items-center gap-1.5 mt-2">
+                  <span className="text-[10px] font-bold text-stone-500">Quick Restock:</span>
+                  {[10, 20, 30, 50].map((qty) => (
+                    <button
+                      key={qty}
+                      type="button"
+                      onClick={() => setProductFormData({ ...productFormData, restock: qty.toString() })}
+                      className="px-2 py-0.5 rounded-lg bg-orange-100 hover:bg-orange-200 text-orange-800 text-[10px] font-bold border border-orange-200 transition cursor-pointer"
+                    >
+                      +{qty}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-stone-400 mt-1 font-normal">
+                  Put new freshly baked units into stock. Once previous stock reaches 0, enter your restock amount here (e.g. 30) to make the item available for orders again.
+                </p>
+              </div>
+
+              {/* Available Delivery Date (Per-Product Scheduling) */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-stone-700 font-bold">Available Delivery Date *</label>
+                  <span className="text-[10px] text-orange-700 font-bold bg-orange-100 px-2 py-0.5 rounded-full border border-orange-200">
+                    Per-Product Schedule
+                  </span>
+                </div>
+                <select
+                  value={productFormData.delivery_date}
+                  onChange={(e) =>
+                    setProductFormData({ ...productFormData, delivery_date: e.target.value })
+                  }
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-orange-50/40 border border-orange-200 text-stone-900 focus:outline-none focus:border-orange-500 font-bold text-xs cursor-pointer"
+                >
+                  {getUpcomingSundays(8).map((sun) => (
+                    <option key={sun} value={sun}>
+                      Sunday, {formatSundayDateDisplay(sun)} ({sun})
+                    </option>
+                  ))}
+                </select>
+                {/* Quick Sunday Buttons */}
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  <span className="text-[10px] font-bold text-stone-500 self-center">Quick Select:</span>
+                  {getUpcomingSundays(4).map((sun) => (
+                    <button
+                      key={sun}
+                      type="button"
+                      onClick={() => setProductFormData({ ...productFormData, delivery_date: sun })}
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                        productFormData.delivery_date === sun
+                          ? "bg-orange-600 text-white border-orange-600 shadow-xs"
+                          : "bg-orange-50 hover:bg-orange-100 text-orange-800 border-orange-200"
+                      }`}
+                    >
+                      {formatSundayDateDisplay(sun)}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-stone-400 mt-1 font-normal">
+                  Sets the scheduled delivery date for customers purchasing this specific item.
+                </p>
               </div>
 
               <div>
@@ -5348,27 +5785,62 @@ export default function DashboardPage() {
                     )}
 
                     {/* QUANTITY PICKER */}
-                    <div className="space-y-1.5">
-                      <label className="block text-stone-700 font-bold">Quantity:</label>
-                      <div className="flex items-center gap-3">
-                        <button
-                          type="button"
-                          onClick={() => setOrderQuantity((q) => Math.max(1, q - 1))}
-                          className="w-9 h-9 rounded-xl bg-orange-100 hover:bg-orange-200 text-orange-800 font-black text-sm flex items-center justify-center transition cursor-pointer"
-                        >
-                          -
-                        </button>
-                        <span className="w-12 text-center text-sm font-black text-stone-900 font-mono">
-                          {orderQuantity}
+                    {(() => {
+                      const maxLimit = selectedProductForOrder.max_order_limit ?? 30;
+                      const available = selectedProductForOrder.available_stock ?? maxLimit;
+                      return (
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <label className="block text-stone-700 font-bold">Quantity:</label>
+                            <span className="text-[11px] text-stone-500 font-medium">
+                              Available: <strong className="text-orange-600">{available}</strong> / {maxLimit} {selectedProductForOrder.unit_type || "pcs"}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => setOrderQuantity((q) => Math.max(1, q - 1))}
+                              className="w-9 h-9 rounded-xl bg-orange-100 hover:bg-orange-200 text-orange-800 font-black text-sm flex items-center justify-center transition cursor-pointer"
+                            >
+                              -
+                            </button>
+                            <span className="w-12 text-center text-sm font-black text-stone-900 font-mono">
+                              {orderQuantity}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setOrderQuantity((q) => Math.min(available, q + 1))}
+                              disabled={orderQuantity >= available}
+                              className="w-9 h-9 rounded-xl bg-orange-100 hover:bg-orange-200 text-orange-800 font-black text-sm flex items-center justify-center transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              +
+                            </button>
+                          </div>
+                          {available <= 0 && (
+                            <p className="text-[11px] text-rose-600 font-bold">This item is currently out of stock.</p>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Pre-set Delivery Date for this item */}
+                    <div className="bg-orange-50/80 border border-orange-200/80 rounded-2xl p-3 flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <span className="text-[10px] font-bold text-stone-500 uppercase tracking-wide">
+                          Scheduled Delivery Date
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => setOrderQuantity((q) => q + 1)}
-                          className="w-9 h-9 rounded-xl bg-orange-100 hover:bg-orange-200 text-orange-800 font-black text-sm flex items-center justify-center transition cursor-pointer"
-                        >
-                          +
-                        </button>
+                        <p className="text-xs font-black text-orange-950 flex items-center gap-1.5">
+                          <span>📅</span>
+                          <span>
+                            {selectedProductForOrder.delivery_date
+                              ? `Sunday, ${formatSundayDateDisplay(selectedProductForOrder.delivery_date)} (${selectedProductForOrder.delivery_date})`
+                              : "Sunday, Nov 8 (2026-11-08)"}
+                          </span>
+                        </p>
                       </div>
+                      <span className="text-[10px] font-bold text-orange-700 bg-orange-100 px-2 py-0.5 rounded-full border border-orange-200 shrink-0">
+                        Pre-set by Bakery
+                      </span>
                     </div>
                   </div>
                 </>
@@ -5382,23 +5854,39 @@ export default function DashboardPage() {
               >
                 Cancel
               </button>
-              <button
-                onClick={handleConfirmPlaceOrder}
-                disabled={isSubmittingOrder}
-                className="flex-1 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold shadow-md shadow-orange-600/30 cursor-pointer transition text-xs flex items-center justify-center gap-1.5"
-              >
-                {isSubmittingOrder ? (
-                  <>
-                    <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
-                    <span>Adding to Cart...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>🛒</span>
-                    <span>Add to Cart</span>
-                  </>
-                )}
-              </button>
+              {(() => {
+                const maxLimit = selectedProductForOrder.max_order_limit ?? 30;
+                const available = selectedProductForOrder.available_stock ?? maxLimit;
+                const isSoldOut = available <= 0 || !selectedProductForOrder.is_available;
+                return (
+                  <button
+                    onClick={handleConfirmPlaceOrder}
+                    disabled={isSubmittingOrder || isSoldOut}
+                    className={`flex-1 py-2.5 rounded-xl font-bold shadow-md cursor-pointer transition text-xs flex items-center justify-center gap-1.5 ${
+                      isSoldOut
+                        ? "bg-stone-300 text-stone-500 cursor-not-allowed shadow-none"
+                        : "bg-orange-600 hover:bg-orange-500 text-white shadow-orange-600/30"
+                    }`}
+                  >
+                    {isSubmittingOrder ? (
+                      <>
+                        <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                        <span>Adding to Cart...</span>
+                      </>
+                    ) : isSoldOut ? (
+                      <>
+                        <span>🚫</span>
+                        <span>Out of Stock</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>🛒</span>
+                        <span>Add to Cart</span>
+                      </>
+                    )}
+                  </button>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -5522,6 +6010,13 @@ export default function DashboardPage() {
           showToast("success", `Welcome back, ${loggedInUser.username || loggedInUser.full_name}!`);
         }}
         initialMessage={loginModalMessage}
+      />
+
+      {/* ANNOUNCEMENT POP-UP MODAL OVERLAY */}
+      <AnnouncementModal
+        isOpen={isAnnouncementModalOpen}
+        onClose={() => setIsAnnouncementModalOpen(false)}
+        announcements={announcements}
       />
 
     </div>

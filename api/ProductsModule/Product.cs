@@ -21,5 +21,14 @@ namespace API.ProductsModule
 
         [JsonPropertyName("is_available")]
         public bool IsAvailable { get; set; }
+
+        [JsonPropertyName("max_order_limit")]
+        public int? MaxOrderLimit { get; set; }
+
+        [JsonPropertyName("available_stock")]
+        public int? AvailableStock { get; set; }
+
+        [JsonPropertyName("delivery_date")]
+        public string? DeliveryDate { get; set; }
     }
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export interface OrderPin {
   orderId: number;
@@ -44,35 +44,112 @@ function makeSvgIcon(color: string, label: string) {
   return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgStr);
 }
 
+// Olongapo City default center coordinates
+const OLONGAPO_CENTER: [number, number] = [14.8387, 120.2842];
+const DEFAULT_ZOOM = 13;
+
 export default function OrdersOverviewMap({ pins }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
+  const markersLayerRef = useRef<any>(null);
+  const userInteractedRef = useRef(false);
+  const hasFittedInitialBoundsRef = useRef(false);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => setMounted(true), []);
 
+  // Initialize Leaflet map with dragging, zoomControl, and scrollWheelZoom enabled
   useEffect(() => {
     if (!mounted || !containerRef.current) return;
     if (typeof window === "undefined") return;
 
+    let isSubscribed = true;
+
     import("leaflet").then((L) => {
-      // Init map only once
+      if (!isSubscribed || !containerRef.current) return;
+
+      // Fix default icon paths for Next.js
+      delete (L.Icon.Default.prototype as any)._getIconUrl;
+      L.Icon.Default.mergeOptions({
+        iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+        iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+        shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+      });
+
       if (!mapRef.current) {
-        delete (L.Icon.Default.prototype as any)._getIconUrl;
-        const map = L.map(containerRef.current!, { zoomControl: true }).setView([14.8387, 120.2842], 10);
+        // Explicitly enable dragging, zoomControl, and scrollWheelZoom
+        const map = L.map(containerRef.current, {
+          center: OLONGAPO_CENTER,
+          zoom: DEFAULT_ZOOM,
+          zoomControl: true,
+          dragging: true,
+          scrollWheelZoom: true,
+          doubleClickZoom: true,
+          boxZoom: true,
+          touchZoom: true,
+          keyboard: true,
+        });
+
+        // Re-enable handlers explicitly to guarantee un-frozen interactive navigation
+        map.dragging.enable();
+        map.scrollWheelZoom.enable();
+        map.doubleClickZoom.enable();
+        map.touchZoom.enable();
+
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
           attribution: '&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors',
           maxZoom: 19,
         }).addTo(map);
+
+        // Marker layer group
+        const markersGroup = L.layerGroup().addTo(map);
+        markersLayerRef.current = markersGroup;
+
+        // Track user interaction so subsequent background updates don't jerk the viewport
+        map.on("dragstart", () => { userInteractedRef.current = true; });
+        map.on("zoomstart", () => { userInteractedRef.current = true; });
+
         mapRef.current = map;
+
+        // Invalidate size once rendered in DOM tab container
+        setTimeout(() => {
+          map.invalidateSize();
+        }, 150);
       }
+    });
 
+    const handleResize = () => {
+      if (mapRef.current) {
+        mapRef.current.invalidateSize();
+      }
+    };
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      isSubscribed = false;
+      window.removeEventListener("resize", handleResize);
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
+      if (containerRef.current) {
+        delete (containerRef.current as any)._leaflet_id;
+      }
+    };
+  }, [mounted]);
+
+  // Update markers when pins change without resetting the user's pan/zoom
+  useEffect(() => {
+    if (!mounted || !mapRef.current) return;
+
+    import("leaflet").then((L) => {
       const map = mapRef.current;
+      if (!map) return;
 
-      // Remove existing markers
-      map.eachLayer((layer: any) => {
-        if (layer instanceof L.Marker) map.removeLayer(layer);
-      });
+      const layer = markersLayerRef.current;
+      if (layer) {
+        layer.clearLayers();
+      }
 
       if (pins.length === 0) return;
 
@@ -88,39 +165,63 @@ export default function OrdersOverviewMap({ pins }: Props) {
           popupAnchor:[0, -44],
         });
 
-        const popup = L.popup({ maxWidth: 260 }).setContent(`
-          <div style="font-family:system-ui,sans-serif;font-size:12px;line-height:1.5">
-            <div style="font-weight:800;font-size:13px;margin-bottom:4px">Order #${pin.orderId}</div>
-            <div><b>Customer:</b> ${pin.customerName}</div>
-            <div><b>Address:</b> ${pin.address}</div>
-            ${pin.contactNumber ? `<div><b>Contact:</b> ${pin.contactNumber}</div>` : ""}
-            ${pin.deliveryDate ? `<div><b>Delivery:</b> ${pin.deliveryDate}</div>` : ""}
-            <div style="margin-top:6px;display:flex;justify-content:space-between">
+        const popup = L.popup({ maxWidth: 280 }).setContent(`
+          <div style="font-family:system-ui,sans-serif;font-size:12px;line-height:1.5;padding:2px">
+            <div style="font-weight:800;font-size:13px;margin-bottom:4px;color:#1c1917">Order #${pin.orderId}</div>
+            <div style="color:#44403c"><b>Customer:</b> ${pin.customerName}</div>
+            <div style="color:#44403c"><b>Address:</b> ${pin.address}</div>
+            ${pin.contactNumber ? `<div style="color:#44403c"><b>Contact:</b> ${pin.contactNumber}</div>` : ""}
+            ${pin.deliveryDate ? `<div style="color:#44403c"><b>Delivery:</b> ${pin.deliveryDate}</div>` : ""}
+            <div style="margin-top:6px;display:flex;align-items:center;justify-content:space-between">
               <span style="padding:2px 8px;border-radius:20px;font-weight:700;font-size:11px;color:white;background:${color}">${pin.status}</span>
-              <span style="font-weight:800;color:#ea580c">₱${pin.totalAmount.toFixed(2)}</span>
+              <span style="font-weight:800;color:#ea580c;font-size:13px">₱${pin.totalAmount.toFixed(2)}</span>
             </div>
             <a href="https://maps.google.com/?q=${pin.lat},${pin.lng}" target="_blank"
-               style="display:block;margin-top:8px;text-align:center;padding:4px 0;background:#2563eb;color:white;border-radius:8px;font-weight:700;text-decoration:none;font-size:11px">
+               style="display:block;margin-top:8px;text-align:center;padding:5px 0;background:#ea580c;color:white;border-radius:8px;font-weight:700;text-decoration:none;font-size:11px">
               🗺️ Open in Google Maps
             </a>
           </div>
         `);
 
-        L.marker([pin.lat, pin.lng], { icon }).bindPopup(popup).addTo(map);
+        const marker = L.marker([pin.lat, pin.lng], { icon }).bindPopup(popup);
+        if (layer) {
+          layer.addLayer(marker);
+        } else {
+          marker.addTo(map);
+        }
         bounds.push([pin.lat, pin.lng]);
       });
 
-      if (bounds.length > 0) {
+      // Fit bounds on first pins load if the user hasn't actively navigated away
+      if (bounds.length > 0 && !hasFittedInitialBoundsRef.current && !userInteractedRef.current) {
         try {
-          map.fitBounds(bounds as any, { padding: [40, 40], maxZoom: 15 });
+          map.fitBounds(bounds as any, { padding: [50, 50], maxZoom: 15 });
+          hasFittedInitialBoundsRef.current = true;
         } catch { }
       }
     });
   }, [mounted, pins]);
 
+  const handleCenterOlongapo = () => {
+    if (mapRef.current) {
+      userInteractedRef.current = true;
+      mapRef.current.setView(OLONGAPO_CENTER, DEFAULT_ZOOM, { animate: true });
+    }
+  };
+
+  const handleFitAllPins = () => {
+    if (mapRef.current && pins.length > 0) {
+      userInteractedRef.current = true;
+      const bounds = pins.map((p) => [p.lat, p.lng]);
+      try {
+        mapRef.current.fitBounds(bounds as any, { padding: [50, 50], maxZoom: 15 });
+      } catch { }
+    }
+  };
+
   if (!mounted) {
     return (
-      <div className="h-[480px] rounded-2xl bg-stone-100 border border-orange-200 flex items-center justify-center">
+      <div className="h-[500px] rounded-2xl bg-stone-100 border border-orange-200 flex items-center justify-center">
         <div className="text-xs text-stone-400 font-medium flex items-center gap-2">
           <div className="w-4 h-4 border-2 border-orange-400 border-t-transparent rounded-full animate-spin" />
           Loading delivery map...
@@ -130,9 +231,48 @@ export default function OrdersOverviewMap({ pins }: Props) {
   }
 
   return (
-    <>
+    <div className="relative rounded-2xl overflow-hidden border border-orange-200 shadow-sm">
       <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-      <div ref={containerRef} style={{ height: 480, width: "100%", borderRadius: 16, overflow: "hidden" }} />
-    </>
+      <style>{`
+        .leaflet-container { font-family: inherit; width: 100%; height: 100%; z-index: 10; }
+        .leaflet-control-zoom { border-radius: 12px !important; overflow: hidden; border: 1px solid #fed7aa !important; }
+      `}</style>
+
+      {/* Map Interactive Canvas */}
+      <div
+        ref={containerRef}
+        style={{ height: 500, width: "100%" }}
+        className="cursor-grab active:cursor-grabbing"
+      />
+
+      {/* Floating Map Navigation Utility Controls */}
+      <div className="absolute top-3 right-3 z-[999] flex flex-col gap-2">
+        <button
+          type="button"
+          onClick={handleCenterOlongapo}
+          className="bg-white/95 hover:bg-white text-stone-800 border border-orange-200 px-3 py-1.5 rounded-xl text-xs font-bold shadow-md hover:shadow-lg transition cursor-pointer flex items-center gap-1.5 backdrop-blur-sm"
+          title="Pan & center on Olongapo City"
+        >
+          <span>📍</span>
+          <span>Center Olongapo</span>
+        </button>
+        {pins.length > 0 && (
+          <button
+            type="button"
+            onClick={handleFitAllPins}
+            className="bg-white/95 hover:bg-white text-orange-700 border border-orange-200 px-3 py-1.5 rounded-xl text-xs font-bold shadow-md hover:shadow-lg transition cursor-pointer flex items-center gap-1.5 backdrop-blur-sm"
+            title="Fit all customer pins in view"
+          >
+            <span>🎯</span>
+            <span>Fit All Pins ({pins.length})</span>
+          </button>
+        )}
+      </div>
+
+      <div className="bg-stone-50 px-3.5 py-2 text-[11px] text-stone-500 font-medium border-t border-stone-200 flex flex-wrap items-center justify-between gap-2">
+        <span>💡 Drag to pan, scroll wheel / pinch to zoom anywhere across Olongapo</span>
+        <span className="font-bold text-orange-600">Olongapo City, Zambales</span>
+      </div>
+    </div>
   );
 }

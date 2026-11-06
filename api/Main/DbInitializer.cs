@@ -58,6 +58,9 @@ namespace API.Main
                     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_address TEXT DEFAULT '';",
                     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS decline_reason TEXT DEFAULT '';",
                     "ALTER TABLE product_variations ADD COLUMN IF NOT EXISTS is_available BOOLEAN DEFAULT TRUE;",
+                    "ALTER TABLE products ADD COLUMN IF NOT EXISTS max_order_limit INT DEFAULT 30;",
+                    "ALTER TABLE products ADD COLUMN IF NOT EXISTS available_stock INT DEFAULT 30;",
+                    "ALTER TABLE products ADD COLUMN IF NOT EXISTS delivery_date VARCHAR(50) DEFAULT '2026-11-08';",
                     "UPDATE users SET role = 'customer' WHERE role IS NULL OR role = '';"
                 };
 

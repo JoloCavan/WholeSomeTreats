@@ -117,6 +117,23 @@ export interface ChatMessage {
   created_at: string;
 }
 
+export interface BakeryStoreLocation {
+  storeName: string;
+  address: string;
+  lat: number;
+  lng: number;
+  contactNumber?: string;
+  updatedAt?: string;
+}
+
+export const DEFAULT_BAKERY_LOCATION: BakeryStoreLocation = {
+  storeName: "WholesomeTreats Bakery",
+  address: "123 Rizal Ave, West Bajac-Bajac, Olongapo City, 2200 Zambales",
+  lat: 14.8387,
+  lng: 120.2842,
+  contactNumber: "+63 912 345 6789",
+};
+
 export const defaultCheesecakeVariations: Record<number, ProductVariation[]> = {
   4: [
     { id: 1, product_id: 4, flavor_name: "Original", price: 180.0, is_available: true },

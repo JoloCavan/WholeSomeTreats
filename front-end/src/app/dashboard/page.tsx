@@ -4,6 +4,7 @@ import DeliveryMap, { LocationResult } from "@/app/components/DeliveryMap";
 import OrdersOverviewMap, { OrderPin } from "@/app/components/OrdersOverviewMap";
 import AuthModal from "@/app/components/AuthModal";
 import AnnouncementModal from "@/app/components/AnnouncementModal";
+import BakeryLocationPickerMap from "@/app/components/BakeryLocationPickerMap";
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
@@ -21,6 +22,8 @@ import {
   UserItem,
   ChatMessage,
   getEffectiveAvailableStock,
+  BakeryStoreLocation,
+  DEFAULT_BAKERY_LOCATION,
 } from "@/app/types";
 
 const loadStoredCart = (): CartItem[] => {
@@ -315,6 +318,32 @@ const saveStoredAnnouncements = (items: Announcement[]) => {
   }
 };
 
+const loadStoredBakeryLocation = (): BakeryStoreLocation => {
+  if (typeof window === "undefined") return DEFAULT_BAKERY_LOCATION;
+  try {
+    const stored = localStorage.getItem("wt_bakery_location");
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (parsed && typeof parsed.lat === "number" && typeof parsed.lng === "number") {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.error("Load bakery location error:", e);
+  }
+  return DEFAULT_BAKERY_LOCATION;
+};
+
+const saveStoredBakeryLocation = (loc: BakeryStoreLocation) => {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem("wt_bakery_location", JSON.stringify(loc));
+    window.dispatchEvent(new CustomEvent("wt_bakery_updated", { detail: loc }));
+  } catch (e) {
+    console.error("Save bakery location error:", e);
+  }
+};
+
 const formatDeliveryDate = (dateStr?: string | null, createdAtStr?: string): string => {
   if (!dateStr || dateStr.trim() === "") {
     if (!createdAtStr) return "";
@@ -581,6 +610,12 @@ export default function DashboardPage() {
     getNextSundayLocalDateString()
   );
   const [isSubmittingOrder, setIsSubmittingOrder] = useState<boolean>(false);
+
+  // Store Settings & Bakery Location State
+  const [bakeryLocation, setBakeryLocation] = useState<BakeryStoreLocation>(DEFAULT_BAKERY_LOCATION);
+  const [bakeryFormData, setBakeryFormData] = useState<BakeryStoreLocation>(DEFAULT_BAKERY_LOCATION);
+  const [isEditingBakerySettings, setIsEditingBakerySettings] = useState(false);
+  const [isGeocodingBakery, setIsGeocodingBakery] = useState(false);
 
   // Real-time synchronization across windows/tabs and sessions
   useEffect(() => {
@@ -1588,6 +1623,10 @@ export default function DashboardPage() {
     setCart(loadStoredCart());
     fetchUsers();
 
+    const storedBakery = loadStoredBakeryLocation();
+    setBakeryLocation(storedBakery);
+    setBakeryFormData(storedBakery);
+
     // Auto-fetch announcements on site visit & auto-open pop-up modal for customers
     fetchAnnouncements().then((data) => {
       const storedUser = typeof window !== "undefined" ? localStorage.getItem("user") : null;
@@ -1701,6 +1740,86 @@ export default function DashboardPage() {
     saveStoredAnnouncements(updated);
     showToast("success", `Announcement "${announcementToDelete.title}" deleted.`);
     setAnnouncementToDelete(null);
+  };
+
+  // STORE SETTINGS / BAKERY LOCATION HANDLERS
+  const handleGeocodeBakeryAddress = async () => {
+    const query = bakeryFormData.address.trim();
+    if (!query) {
+      showToast("error", "Please enter a physical store address to convert.");
+      return;
+    }
+
+    setIsGeocodingBakery(true);
+    try {
+      const searchUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=ph&limit=1`;
+      const res = await fetch(searchUrl, {
+        headers: { "Accept-Language": "en" },
+      });
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        const found = data[0];
+        const newLat = parseFloat(found.lat);
+        const newLng = parseFloat(found.lon);
+        setBakeryFormData((prev) => ({
+          ...prev,
+          lat: newLat,
+          lng: newLng,
+          address: found.display_name || prev.address,
+        }));
+        showToast(
+          "success",
+          `Coordinates converted successfully! (${newLat.toFixed(5)}, ${newLng.toFixed(5)})`
+        );
+      } else {
+        const fallbackUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent("Olongapo City, Zambales")}&countrycodes=ph&limit=1`;
+        const fallbackRes = await fetch(fallbackUrl, {
+          headers: { "Accept-Language": "en" },
+        });
+        const fallbackData = await fallbackRes.json();
+        if (fallbackData?.[0]) {
+          const fLat = parseFloat(fallbackData[0].lat);
+          const fLng = parseFloat(fallbackData[0].lon);
+          setBakeryFormData((prev) => ({
+            ...prev,
+            lat: fLat,
+            lng: fLng,
+          }));
+          showToast(
+            "success",
+            `Address centered on Olongapo City (${fLat.toFixed(5)}, ${fLng.toFixed(5)}). You can fine-tune coordinates manually.`
+          );
+        } else {
+          showToast("error", "Could not find coordinates for this address. You may enter latitude & longitude manually.");
+        }
+      }
+    } catch (err) {
+      console.error("Geocoding error:", err);
+      showToast("error", "Network issue while converting address. You can type coordinates manually.");
+    } finally {
+      setIsGeocodingBakery(false);
+    }
+  };
+
+  const handleSaveBakeryLocation = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!bakeryFormData.address.trim()) {
+      showToast("error", "Please provide a physical address.");
+      return;
+    }
+    if (isNaN(bakeryFormData.lat) || isNaN(bakeryFormData.lng)) {
+      showToast("error", "Please provide valid numerical coordinates.");
+      return;
+    }
+
+    const updated: BakeryStoreLocation = {
+      ...bakeryFormData,
+      updatedAt: new Date().toISOString(),
+    };
+    setBakeryLocation(updated);
+    saveStoredBakeryLocation(updated);
+    setIsEditingBakerySettings(false);
+    showToast("success", "Store settings & bakery location saved successfully!");
   };
 
   // USERS API HANDLERS (GET /api/users & DELETE /api/users/admin/delete/{id})
@@ -4682,11 +4801,150 @@ export default function DashboardPage() {
         {/* ─── DELIVERY MAP TAB ─── */}
         {activeTab === "delivery-map" && isAdmin && (
           <div className="space-y-6 animate-in fade-in duration-200">
+            {/* STORE SETTINGS / OWNER PROFILE SECTION */}
+            <div className="bg-white border border-orange-200/80 rounded-3xl p-6 shadow-sm space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-orange-100 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-orange-100 border border-orange-200 text-orange-600 flex items-center justify-center text-2xl shadow-inner shrink-0">
+                    🏪
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-lg font-black text-stone-900">Store Settings & Owner Profile</h2>
+                      <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                        Delivery Origin
+                      </span>
+                    </div>
+                    <p className="text-xs text-stone-500 mt-0.5">
+                      Configure the bakery's physical address and GPS coordinates to accurately calculate delivery distances to customer addresses.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsEditingBakerySettings(!isEditingBakerySettings)}
+                  className="px-3.5 py-2 rounded-xl border border-orange-200 bg-orange-50 hover:bg-orange-100 text-orange-800 text-xs font-bold transition cursor-pointer flex items-center gap-1.5 self-start sm:self-auto shadow-xs"
+                >
+                  <span>{isEditingBakerySettings ? "✕ Collapse Editor" : "✏️ Edit Store Address & GPS"}</span>
+                </button>
+              </div>
+
+              {/* CURRENT ACTIVE LOCATION SUMMARY */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="p-3.5 rounded-2xl bg-orange-50/60 border border-orange-100 flex items-center gap-3">
+                  <span className="text-xl">🏠</span>
+                  <div className="overflow-hidden">
+                    <p className="text-[10px] uppercase font-black tracking-wider text-orange-700">Bakery Name</p>
+                    <p className="text-xs font-extrabold text-stone-900 truncate">{bakeryLocation.storeName}</p>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-orange-50/60 border border-orange-100 flex items-center gap-3">
+                  <span className="text-xl">📍</span>
+                  <div className="overflow-hidden flex-1">
+                    <p className="text-[10px] uppercase font-black tracking-wider text-orange-700">Physical Store Address</p>
+                    <p className="text-xs font-extrabold text-stone-900 truncate" title={bakeryLocation.address}>
+                      {bakeryLocation.address}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-orange-50/60 border border-orange-100 flex items-center gap-3">
+                  <span className="text-xl">🛰️</span>
+                  <div className="overflow-hidden flex-1">
+                    <p className="text-[10px] uppercase font-black tracking-wider text-orange-700">GPS Coordinates</p>
+                    <p className="text-xs font-mono font-black text-orange-900">
+                      {bakeryLocation.lat.toFixed(5)}, {bakeryLocation.lng.toFixed(5)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* STORE SETTINGS EDIT FORM */}
+              {isEditingBakerySettings && (
+                <form
+                  onSubmit={handleSaveBakeryLocation}
+                  className="bg-stone-50/80 border border-orange-200 rounded-2xl p-5 space-y-4 animate-in fade-in duration-200"
+                >
+                  <div className="flex items-center justify-between pb-2 border-b border-stone-200">
+                    <h3 className="text-xs font-black uppercase tracking-wider text-orange-800">
+                      Edit Bakery Location Details
+                    </h3>
+                    <span className="text-[11px] text-stone-500 font-medium">
+                      Changes persist across all admin sessions and map instances
+                    </span>
+                  </div>
+
+                  {/* STORE NAME */}
+                  <div>
+                    <label className="block text-xs font-bold text-stone-700 mb-1">
+                      Store Name *
+                    </label>
+                    <input
+                      type="text"
+                      value={bakeryFormData.storeName}
+                      onChange={(e) => setBakeryFormData({ ...bakeryFormData, storeName: e.target.value })}
+                      placeholder="e.g. WholesomeTreats Bakery"
+                      className="w-full px-3 py-2 rounded-xl border border-stone-300 bg-white text-xs font-medium focus:outline-none focus:border-orange-500"
+                      required
+                    />
+                  </div>
+
+                  {/* PHYSICAL STORE ADDRESS */}
+                  <div>
+                    <label className="block text-xs font-bold text-stone-700 mb-1">
+                      Physical Store Address *
+                    </label>
+                    <input
+                      type="text"
+                      value={bakeryFormData.address}
+                      onChange={(e) => setBakeryFormData({ ...bakeryFormData, address: e.target.value })}
+                      placeholder="e.g. 123 Rizal Ave, West Bajac-Bajac, Olongapo City, Zambales"
+                      className="w-full px-3 py-2 rounded-xl border border-stone-300 bg-white text-xs font-medium focus:outline-none focus:border-orange-500"
+                      required
+                    />
+                  </div>
+
+                  {/* INTERACTIVE LOCATION PICKER MAP */}
+                  <BakeryLocationPickerMap
+                    lat={bakeryFormData.lat}
+                    lng={bakeryFormData.lng}
+                    onChange={(newLat, newLng) => {
+                      setBakeryFormData((prev) => ({
+                        ...prev,
+                        lat: newLat,
+                        lng: newLng,
+                      }));
+                    }}
+                  />
+
+                  {/* FORM ACTIONS */}
+                  <div className="flex items-center justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingBakerySettings(false)}
+                      className="px-3.5 py-2 rounded-xl border border-stone-300 text-stone-700 text-xs font-bold hover:bg-stone-100 transition cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-5 py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold shadow-md shadow-orange-600/30 transition cursor-pointer flex items-center gap-1.5"
+                    >
+                      <span>💾 Save Store Settings</span>
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+
+            {/* DELIVERY LOCATION OVERVIEW MAP CARD */}
             <div className="bg-white border border-orange-200/80 rounded-3xl p-6 shadow-sm space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <h2 className="text-lg font-black text-stone-900">🗺️ Delivery Location Overview</h2>
-                  <p className="text-xs text-stone-500 mt-0.5">All confirmed customer order locations. Click any pin for details.</p>
+                  <p className="text-xs text-stone-500 mt-0.5">All confirmed customer order locations. Click any pin for details and distance in meters.</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {([["Pending","#f59e0b"],["Approved","#10b981"],["Processing","#f97316"],["Delivering","#3b82f6"],["Completed","#6b7280"],["Declined","#ef4444"]] as [string,string][]).map(([s,col])=>(
@@ -4726,7 +4984,7 @@ export default function DashboardPage() {
                       )}
                     </div>
                     {pins.length > 0 ? (
-                      <OrdersOverviewMap pins={pins} />
+                      <OrdersOverviewMap pins={pins} bakeryLocation={bakeryLocation} />
                     ) : (
                       <div className="h-60 flex flex-col items-center justify-center text-center space-y-2 rounded-2xl bg-stone-50 border border-stone-200">
                         <span className="text-3xl">🗺️</span>

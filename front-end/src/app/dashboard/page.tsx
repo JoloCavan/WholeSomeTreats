@@ -820,8 +820,8 @@ export default function DashboardPage() {
 
   const fetchCart = async () => {
     let localCart = loadStoredCart();
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-    const userStr = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+    const token = typeof window !== "undefined" ? sessionStorage.getItem("token") : null;
+    const userStr = typeof window !== "undefined" ? sessionStorage.getItem("user") : null;
     let currentUserId = 2;
     if (userStr) {
       try {
@@ -869,7 +869,7 @@ export default function DashboardPage() {
   const fetchAnalytics = async () => {
     setLoadingAnalytics(true);
     try {
-      const token = localStorage.getItem("token");
+      const token = typeof window !== "undefined" ? sessionStorage.getItem("token") : null;
       const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
       const [r1, r2, r3, r4] = await Promise.all([
         fetch("/api/analytics/daily-sales", { headers }),
@@ -933,10 +933,10 @@ export default function DashboardPage() {
     const updatedProds = loadStoredProducts(updated, orders);
     setProducts(updatedProds);
 
-    const token = localStorage.getItem("token");
+    const token = typeof window !== "undefined" ? sessionStorage.getItem("token") : null;
     let currentUserId = user?.id || 2;
     try {
-      const uStr = localStorage.getItem("user");
+      const uStr = typeof window !== "undefined" ? sessionStorage.getItem("user") : null;
       if (uStr) { const u = JSON.parse(uStr); if (u.id) currentUserId = u.id; }
     } catch (e) { }
     try {
@@ -956,10 +956,10 @@ export default function DashboardPage() {
     const updatedProds = loadStoredProducts([], orders);
     setProducts(updatedProds);
 
-    const token = localStorage.getItem("token");
+    const token = typeof window !== "undefined" ? sessionStorage.getItem("token") : null;
     let currentUserId = user?.id || 2;
     try {
-      const uStr = localStorage.getItem("user");
+      const uStr = typeof window !== "undefined" ? sessionStorage.getItem("user") : null;
       if (uStr) { const u = JSON.parse(uStr); if (u.id) currentUserId = u.id; }
     } catch (e) { }
     try {
@@ -1017,8 +1017,8 @@ export default function DashboardPage() {
 
     setIsCheckingOutCart(true);
 
-    const token = localStorage.getItem("token");
-    const userStr = localStorage.getItem("user");
+    const token = typeof window !== "undefined" ? sessionStorage.getItem("token") : null;
+    const userStr = typeof window !== "undefined" ? sessionStorage.getItem("user") : null;
     let currentUserId = 2;
     let currentCustomerName = "Customer";
     if (userStr) {
@@ -1454,8 +1454,8 @@ export default function DashboardPage() {
     }
 
     // Check user's authentication state
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-    const userStr = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+    const token = typeof window !== "undefined" ? sessionStorage.getItem("token") : null;
+    const userStr = typeof window !== "undefined" ? sessionStorage.getItem("user") : null;
     const isAuthenticated = Boolean(user && (user.username || user.id)) || Boolean(token && userStr);
 
     if (!isAuthenticated) {
@@ -1488,8 +1488,8 @@ export default function DashboardPage() {
   const handleConfirmPlaceOrder = async () => {
     if (!selectedProductForOrder) return;
 
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-    const userStr = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+    const token = typeof window !== "undefined" ? sessionStorage.getItem("token") : null;
+    const userStr = typeof window !== "undefined" ? sessionStorage.getItem("user") : null;
     const isAuthenticated = Boolean(user && (user.username || user.id)) || Boolean(token && userStr);
 
     if (!isAuthenticated) {
@@ -1512,7 +1512,7 @@ export default function DashboardPage() {
       }
     }
 
-    const loggedUser = user || (typeof window !== "undefined" ? JSON.parse(localStorage.getItem("user") || "{}") : {});
+    const loggedUser = user || (typeof window !== "undefined" ? JSON.parse(sessionStorage.getItem("user") || "{}") : {});
     let currentUserId = loggedUser?.id;
     if (!currentUserId) {
       if (loggedUser?.username?.toLowerCase() === "wholesome") currentUserId = 1;
@@ -1629,7 +1629,7 @@ export default function DashboardPage() {
 
     // Auto-fetch announcements on site visit & auto-open pop-up modal for customers
     fetchAnnouncements().then((data) => {
-      const storedUser = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+      const storedUser = typeof window !== "undefined" ? sessionStorage.getItem("user") : null;
       let isUserAdmin = false;
       if (storedUser) {
         try {
@@ -1937,6 +1937,16 @@ export default function DashboardPage() {
   useEffect(() => {
     let currentUser: any = null;
 
+    // Purge legacy persistent localStorage auth tokens so restarts don't resurrect previous sessions
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+        localStorage.removeItem("userRole");
+        localStorage.removeItem("roleId");
+      } catch (e) { }
+    }
+
     // 1. Check if auth payload was passed via query parameter (e.g. Messenger -> Chrome handoff)
     if (typeof window !== "undefined") {
       try {
@@ -1946,10 +1956,10 @@ export default function DashboardPage() {
           const decoded = JSON.parse(decodeURIComponent(atob(authParam)));
           if (decoded && (decoded.username || decoded.id)) {
             currentUser = decoded;
-            localStorage.setItem("user", JSON.stringify(decoded));
-            if (decoded.role) localStorage.setItem("userRole", decoded.role);
-            if (decoded.roleId) localStorage.setItem("roleId", String(decoded.roleId));
-            if (decoded.token) localStorage.setItem("token", decoded.token);
+            sessionStorage.setItem("user", JSON.stringify(decoded));
+            if (decoded.role) sessionStorage.setItem("userRole", decoded.role);
+            if (decoded.roleId) sessionStorage.setItem("roleId", String(decoded.roleId));
+            if (decoded.token) sessionStorage.setItem("token", decoded.token);
 
             // Clean URL query param without full reload
             params.delete("auth");
@@ -1964,16 +1974,16 @@ export default function DashboardPage() {
       }
     }
 
-    // 2. Check localStorage if no URL auth parameter
-    if (!currentUser) {
-      const savedUser = localStorage.getItem("user");
+    // 2. Check sessionStorage if no URL auth parameter
+    if (!currentUser && typeof window !== "undefined") {
+      const savedUser = sessionStorage.getItem("user");
       if (savedUser) {
         try {
           const u = JSON.parse(savedUser);
           if (u && (u.username || u.id)) {
             if (!u.id) {
               u.id = u.username?.toLowerCase() === "wholesome" ? 1 : u.username?.toLowerCase() === "jeicho" ? 2 : 3;
-              try { localStorage.setItem("user", JSON.stringify(u)); } catch (e) { }
+              try { sessionStorage.setItem("user", JSON.stringify(u)); } catch (e) { }
             }
             currentUser = u;
           }
@@ -1983,20 +1993,9 @@ export default function DashboardPage() {
       }
     }
 
-    // 3. If authenticated user exists, set user and ensure auth is retained in in-app browsers
+    // 3. If authenticated user exists in session, set user
     if (currentUser) {
       setUser(currentUser);
-
-      // Keep auth query parameter active in in-app browsers (like Messenger) so clicking 'Open in browser'
-      // passes the active customer session into the system browser without defaulting to admin or losing login
-      try {
-        const authPayload = btoa(encodeURIComponent(JSON.stringify(currentUser)));
-        const currentUrl = new URL(window.location.href);
-        if (currentUrl.searchParams.get("auth") !== authPayload) {
-          currentUrl.searchParams.set("auth", authPayload);
-          window.history.replaceState({}, document.title, currentUrl.toString());
-        }
-      } catch (e) { }
     } else {
       // 4. Unauthenticated guest user - browse catalog freely as default landing page!
       setUser(null);
@@ -2049,7 +2048,7 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
-    const userStr = localStorage.getItem("user");
+    const userStr = typeof window !== "undefined" ? sessionStorage.getItem("user") : null;
     let userRole = "";
     if (userStr) {
       try {
@@ -2198,7 +2197,7 @@ export default function DashboardPage() {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          Authorization: localStorage.getItem("token") ? `Bearer ${localStorage.getItem("token")}` : "",
+          Authorization: typeof window !== "undefined" && sessionStorage.getItem("token") ? `Bearer ${sessionStorage.getItem("token")}` : "",
         },
         body: JSON.stringify({
           ...target,
@@ -2258,7 +2257,7 @@ export default function DashboardPage() {
   // 3. POST /api/products/admin/add & 4. PUT /api/products/admin/update/{id}
   const handleProductFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const token = localStorage.getItem("token");
+    const token = typeof window !== "undefined" ? sessionStorage.getItem("token") : null;
 
     const basePriceNum = parseFloat(productFormData.base_price) || 0;
     const restockQty = parseInt(productFormData.restock, 10);
@@ -2369,7 +2368,7 @@ export default function DashboardPage() {
   // 5. DELETE /api/products/admin/delete/{id}
   const handleDeleteProduct = async () => {
     if (!productToDelete) return;
-    const token = localStorage.getItem("token");
+    const token = typeof window !== "undefined" ? sessionStorage.getItem("token") : null;
 
     try {
       await fetch(`/api/products/admin/delete/${productToDelete.id}`, {
@@ -2391,13 +2390,17 @@ export default function DashboardPage() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    localStorage.removeItem("userRole");
-    localStorage.removeItem("roleId");
-    localStorage.removeItem("wt_active_tab");
     if (typeof window !== "undefined") {
       try {
+        sessionStorage.removeItem("token");
+        sessionStorage.removeItem("user");
+        sessionStorage.removeItem("userRole");
+        sessionStorage.removeItem("roleId");
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+        localStorage.removeItem("userRole");
+        localStorage.removeItem("roleId");
+        localStorage.removeItem("wt_active_tab");
         window.history.replaceState({}, document.title, window.location.pathname);
       } catch (e) { }
     }
@@ -2418,7 +2421,9 @@ export default function DashboardPage() {
         if (user && (user as any).id === userId) {
           const updatedUser = { ...user, role: newRole };
           setUser(updatedUser);
-          localStorage.setItem("user", JSON.stringify(updatedUser));
+          if (typeof window !== "undefined") {
+            sessionStorage.setItem("user", JSON.stringify(updatedUser));
+          }
         }
         return;
       }
@@ -2617,8 +2622,8 @@ export default function DashboardPage() {
                 <button
                   key={item.id}
                   onClick={() => {
-                    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-                    const userStr = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+                    const token = typeof window !== "undefined" ? sessionStorage.getItem("token") : null;
+                    const userStr = typeof window !== "undefined" ? sessionStorage.getItem("user") : null;
                     const isAuthenticated = Boolean(user && (user.username || user.id)) || Boolean(token && userStr);
                     if (!isAuthenticated && (item.id === "cart" || item.id === "orders" || item.id === "messages")) {
                       setLoginModalMessage(`Please sign in to access ${item.label}.`);
@@ -2898,8 +2903,8 @@ export default function DashboardPage() {
                                   e.preventDefault();
                                   e.stopPropagation();
                                 }
-                                const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-                                const userStr = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+                                const token = typeof window !== "undefined" ? sessionStorage.getItem("token") : null;
+                                const userStr = typeof window !== "undefined" ? sessionStorage.getItem("user") : null;
                                 const isAuthenticated = Boolean(user && (user.username || user.id)) || Boolean(token && userStr);
                                 if (!isAuthenticated) {
                                   setLoginModalMessage("Please sign in to rate products.");

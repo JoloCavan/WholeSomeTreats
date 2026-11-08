@@ -159,10 +159,18 @@ export default function AuthModal({
     }
 
     if (loggedInUser) {
-      if (loggedInUser.token) localStorage.setItem("token", loggedInUser.token);
-      localStorage.setItem("userRole", loggedInUser.role);
-      localStorage.setItem("roleId", String(loggedInUser.roleId || 2));
-      localStorage.setItem("user", JSON.stringify(loggedInUser));
+      if (loggedInUser.token) sessionStorage.setItem("token", loggedInUser.token);
+      sessionStorage.setItem("userRole", loggedInUser.role);
+      sessionStorage.setItem("roleId", String(loggedInUser.roleId || 2));
+      sessionStorage.setItem("user", JSON.stringify(loggedInUser));
+
+      // Ensure any legacy persistent tokens are removed so fresh tab sessions start clean
+      try {
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+        localStorage.removeItem("userRole");
+        localStorage.removeItem("roleId");
+      } catch (e) { }
 
       setToast({
         type: "success",

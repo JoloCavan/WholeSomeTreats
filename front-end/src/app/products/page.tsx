@@ -150,7 +150,15 @@ export default function ProductsPage() {
   const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
-    const userStr = localStorage.getItem("user");
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+        localStorage.removeItem("userRole");
+        localStorage.removeItem("roleId");
+      } catch (e) {}
+    }
+    const userStr = typeof window !== "undefined" ? sessionStorage.getItem("user") : null;
     if (userStr) {
       try {
         const u = JSON.parse(userStr);
@@ -212,7 +220,7 @@ export default function ProductsPage() {
       .then((data) => {
         if (Array.isArray(data) && data.length > 0) {
           setAnnouncements(data);
-          const storedUser = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+          const storedUser = typeof window !== "undefined" ? sessionStorage.getItem("user") : null;
           let isUserAdmin = false;
           if (storedUser) {
             try {
@@ -363,7 +371,7 @@ export default function ProductsPage() {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          Authorization: localStorage.getItem("token") ? `Bearer ${localStorage.getItem("token")}` : "",
+          Authorization: typeof window !== "undefined" && sessionStorage.getItem("token") ? `Bearer ${sessionStorage.getItem("token")}` : "",
         },
       });
       if (res.ok) {
@@ -398,7 +406,7 @@ export default function ProductsPage() {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          Authorization: localStorage.getItem("token") ? `Bearer ${localStorage.getItem("token")}` : "",
+          Authorization: typeof window !== "undefined" && sessionStorage.getItem("token") ? `Bearer ${sessionStorage.getItem("token")}` : "",
         },
       });
       if (res.ok) {
@@ -413,7 +421,7 @@ export default function ProductsPage() {
   };
 
   const handleQuickRestock = async (productId: number, amount = 30) => {
-    const token = localStorage.getItem("token");
+    const token = typeof window !== "undefined" ? sessionStorage.getItem("token") : null;
     const currentList = loadStoredProducts();
     const target = currentList.find((p) => p.id === productId);
     if (!target) return;
@@ -504,8 +512,8 @@ export default function ProductsPage() {
       e.stopPropagation();
     }
 
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-    const userStr = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+    const token = typeof window !== "undefined" ? sessionStorage.getItem("token") : null;
+    const userStr = typeof window !== "undefined" ? sessionStorage.getItem("user") : null;
     const isAuthenticated = Boolean(user && (user.username || user.id)) || Boolean(token && userStr);
 
     if (!isAuthenticated) {
@@ -538,8 +546,8 @@ export default function ProductsPage() {
   const handleConfirmAddToCart = async () => {
     if (!selectedProductForOrder) return;
 
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-    const userStr = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+    const token = typeof window !== "undefined" ? sessionStorage.getItem("token") : null;
+    const userStr = typeof window !== "undefined" ? sessionStorage.getItem("user") : null;
     const isAuthenticated = Boolean(user && (user.username || user.id)) || Boolean(token && userStr);
 
     if (!isAuthenticated) {
@@ -661,7 +669,7 @@ export default function ProductsPage() {
   // 3. POST /api/products/admin/add & 4. PUT /api/products/admin/update/{id}
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const token = localStorage.getItem("token");
+    const token = typeof window !== "undefined" ? sessionStorage.getItem("token") : null;
 
     const basePriceNum = parseFloat(formData.base_price) || 0;
     const restockQty = parseInt(formData.restock, 10);
@@ -764,7 +772,7 @@ export default function ProductsPage() {
   // 5. DELETE /api/products/admin/delete/{id}
   const handleDeleteProduct = async () => {
     if (!productToDelete) return;
-    const token = localStorage.getItem("token");
+    const token = typeof window !== "undefined" ? sessionStorage.getItem("token") : null;
 
     try {
       await fetch(`/api/products/admin/delete/${productToDelete.id}`, {
